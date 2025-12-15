@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from '@/lib/navigation';
 import { toast } from 'sonner';
@@ -81,23 +81,30 @@ export const useCampaignDetailsController = () => {
   const [isResendingSkipped, setIsResendingSkipped] = useState(false);
   const [isCancelingSchedule, setIsCancelingSchedule] = useState(false);
 
+  type CampaignMessagesResponse = Awaited<ReturnType<(typeof campaignService)['getMessages']>>
+
+  // Refs para merge monotônico (evita regressão visual quando broadcast chega antes do DB).
+  const lastCampaignRef = useRef<Campaign | undefined>(undefined)
+  const lastMessagesRef = useRef<CampaignMessagesResponse | undefined>(undefined)
+
   // Fetch campaign data (com polling opcional calculado abaixo)
-  const campaignQuery = useQuery({
+  const campaignQuery = useQuery<Campaign | undefined>({
     queryKey: ['campaign', id],
     queryFn: () => campaignService.getById(id!),
     enabled: !!id && !id.startsWith('temp_'),
     staleTime: 5000,
-    refetchInterval: pollingInterval,
-    onSuccess: (fresh) => {
-      // Merge monotônico para evitar regressão visual quando a UI aplicou deltas via Broadcast,
-      // mas o DB ainda não foi atualizado (bulk upsert no fim do batch).
-      queryClient.setQueryData(['campaign', id], (old: any) =>
-        mergeCampaignCountersMonotonic(old as Campaign | undefined, fresh as Campaign | undefined)
-      );
+    // Importante: não usamos pollingInterval aqui porque ele depende de
+    // isRealtimeConnected/campaign (que por sua vez dependem desta query).
+    // Mantemos o refresh via Broadcast + polling nas queries de messages/metrics.
+    refetchInterval: false,
+    select: (fresh) => {
+      const merged = mergeCampaignCountersMonotonic(lastCampaignRef.current, fresh)
+      lastCampaignRef.current = merged
+      return merged
     },
   });
 
-  const campaign = campaignQuery.data;
+  const campaign = campaignQuery.data as Campaign | undefined;
 
   // Real-time updates via Supabase Realtime with smart debounce
   const { isConnected: isRealtimeConnected, shouldShowRefreshButton, telemetry } = useCampaignRealtime({
@@ -123,7 +130,7 @@ export const useCampaignDetailsController = () => {
     return isRealtimeConnected ? BACKUP_POLLING_INTERVAL : DISCONNECTED_POLLING_INTERVAL;
   }, [isActiveCampaign, isLargeCampaign, isRealtimeConnected]);
 
-  const metricsQuery = useQuery({
+  const metricsQuery = useQuery<any | null>({
     queryKey: ['campaignMetrics', id],
     queryFn: () => campaignService.getMetrics(id!),
     enabled: !!id,
@@ -132,22 +139,21 @@ export const useCampaignDetailsController = () => {
   })
 
   // Fetch messages with optional polling
-  const messagesQuery = useQuery({
+  const messagesQuery = useQuery<CampaignMessagesResponse>({
     queryKey: ['campaignMessages', id, filterStatus],
     queryFn: () => campaignService.getMessages(id!, { status: filterStatus || undefined }),
     enabled: !!id,
     staleTime: 5000,
     // Backup polling only while connected and active
     refetchInterval: pollingInterval,
-    onSuccess: (fresh) => {
-      // Atualiza stats de forma monotônica para evitar "pular pra trás".
-      queryClient.setQueriesData({ queryKey: ['campaignMessages', id] }, (old: any) =>
-        mergeMessageStatsMonotonic(old, fresh)
-      );
+    select: (fresh) => {
+      const merged = mergeMessageStatsMonotonic(lastMessagesRef.current, fresh)
+      lastMessagesRef.current = merged
+      return merged
     },
   });
 
-  const activeCampaign = campaignQuery.data;
+  const activeCampaign = campaignQuery.data as Campaign | undefined;
 
   // Extract messages from paginated response
   const messages: Message[] = useMemo(() => {
