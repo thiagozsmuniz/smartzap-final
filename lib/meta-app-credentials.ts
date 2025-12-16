@@ -19,15 +19,21 @@ export interface MetaAppCredentials {
  */
 export async function getMetaAppCredentials(): Promise<MetaAppCredentials | null> {
   try {
-    const settings = await settingsDb.getAll() as any
+    // IMPORTANTE: settingsDb.getAll() retorna apenas um subconjunto (AppSettings) e
+    // não inclui chaves arbitrárias como metaAppId/metaAppSecret.
+    // Então precisamos ler as chaves diretamente.
+    const [dbAppId, dbSecret] = await Promise.all([
+      settingsDb.get('metaAppId'),
+      settingsDb.get('metaAppSecret'),
+    ])
 
-    const appId = String(settings?.metaAppId || '').trim() || String(process.env.META_APP_ID || '').trim()
-    const appSecret = String(settings?.metaAppSecret || '').trim() || String(process.env.META_APP_SECRET || '').trim()
+    const appId = String(dbAppId || '').trim() || String(process.env.META_APP_ID || '').trim()
+    const appSecret = String(dbSecret || '').trim() || String(process.env.META_APP_SECRET || '').trim()
 
     if (!appId || !appSecret) return null
 
     const source: MetaAppCredentialsSource =
-      String(settings?.metaAppId || '').trim() && String(settings?.metaAppSecret || '').trim() ? 'db'
+      String(dbAppId || '').trim() && String(dbSecret || '').trim() ? 'db'
       : (String(process.env.META_APP_ID || '').trim() && String(process.env.META_APP_SECRET || '').trim() ? 'env' : 'none')
 
     return { appId, appSecret, source }
@@ -46,10 +52,13 @@ export async function getMetaAppConfigPublic(): Promise<{
   isConfigured: boolean
 }> {
   try {
-    const settings = await settingsDb.getAll() as any
+    const [dbAppIdRaw, dbSecretRaw] = await Promise.all([
+      settingsDb.get('metaAppId'),
+      settingsDb.get('metaAppSecret'),
+    ])
 
-    const dbAppId = String(settings?.metaAppId || '').trim()
-    const dbSecret = String(settings?.metaAppSecret || '').trim()
+    const dbAppId = String(dbAppIdRaw || '').trim()
+    const dbSecret = String(dbSecretRaw || '').trim()
 
     const envAppId = String(process.env.META_APP_ID || '').trim()
     const envSecret = String(process.env.META_APP_SECRET || '').trim()
