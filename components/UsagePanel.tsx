@@ -220,9 +220,9 @@ export const UsagePanel: React.FC<UsagePanelProps> = ({ usage, isLoading, onRefr
       return 'Dentro do plano'
     }
     if (type === 'whatsapp') {
-      if (status === 'critical') return 'Próximo do limite do tier!'
-      if (status === 'warning') return 'Próximo do limite do tier atual'
-      return `Qualidade: ${usage.whatsapp.quality}`
+      if (status === 'critical') return 'Próximo do limite do tier (janela móvel 24h)!'
+      if (status === 'warning') return 'Atenção: você está chegando perto do limite /24h'
+      return `Qualidade: ${usage.whatsapp.quality} • Janela: 24h`
     }
     return ''
   }
@@ -429,7 +429,7 @@ export const UsagePanel: React.FC<UsagePanelProps> = ({ usage, isLoading, onRefr
           icon={MessageCircle}
           iconColor="text-green-400"
           title="WhatsApp"
-          subtitle={`Tier: ${formatNumber(usage.whatsapp.tierLimit)}/dia`}
+          subtitle={`Tier: ${formatNumber(usage.whatsapp.tierLimit)}/24h (contatos únicos)`}
           value={formatNumber(usage.whatsapp.messagesSent)}
           limit={formatNumber(usage.whatsapp.tierLimit)}
           percentage={usage.whatsapp.percentage}
@@ -443,7 +443,7 @@ export const UsagePanel: React.FC<UsagePanelProps> = ({ usage, isLoading, onRefr
         <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
           <p className="text-xs text-amber-300">
             💡 <strong>Dica:</strong> Você pode subir pro próximo tier do WhatsApp
-            enviando mais {formatNumber(usage.whatsapp.tierLimit - usage.whatsapp.messagesSent)} mensagens com boa qualidade.
+            alcançando mais {formatNumber(Math.max(usage.whatsapp.tierLimit - usage.whatsapp.messagesSent, 0))} contatos com boa qualidade.
           </p>
         </div>
       )}

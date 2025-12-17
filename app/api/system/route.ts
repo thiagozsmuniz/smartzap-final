@@ -275,16 +275,44 @@ export async function GET() {
           }
 
           // Get WhatsApp messages sent
-          const thirtyDaysAgo = new Date()
-          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+          // Observação importante:
+          // O “tier” do WhatsApp (whatsapp_business_manager_messaging_limit) é uma janela móvel
+          // de ~24h e é baseado em destinatários/contatos únicos, não em “mês” ou “30 dias”.
+          // Se compararmos 30 dias de envios com um limite /24h, a % fica “travada” e confusa.
+          //
+          // Aqui usamos campaign_contacts como proxy de “destinatários únicos enviados nas últimas 24h”.
+          // Preferimos contact_id (quando existe) e fazemos fallback para phone.
+          try {
+            const cutoffIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+            const uniqueRecipients = new Set<string>()
 
-          const { data: campaigns } = await supabase
-            .from('campaigns')
-            .select('sent')
-            .gte('created_at', thirtyDaysAgo.toISOString())
+            const pageSize = 5000
+            const maxRows = 200000 // safety guard
 
-          const totalSent = campaigns?.reduce((sum: number, c: any) => sum + (c.sent || 0), 0) || 0
-          response.usage.whatsapp.messagesSent = totalSent
+            for (let offset = 0; offset < maxRows; offset += pageSize) {
+              const { data: rows, error: rowsError } = await supabase
+                .from('campaign_contacts')
+                .select('contact_id,phone')
+                .gte('sent_at', cutoffIso)
+                .not('sent_at', 'is', null)
+                .range(offset, offset + pageSize - 1)
+
+              if (rowsError) throw rowsError
+              if (!rows || rows.length === 0) break
+
+              for (const r of rows as any[]) {
+                const key = String(r?.contact_id || r?.phone || '').trim()
+                if (key) uniqueRecipients.add(key)
+              }
+
+              if (rows.length < pageSize) break
+            }
+
+            response.usage.whatsapp.messagesSent = uniqueRecipients.size
+          } catch (e) {
+            console.warn('[System] Falha ao calcular destinatários únicos 24h (best-effort):', e)
+            response.usage.whatsapp.messagesSent = 0
+          }
         } catch (error) {
           response.health.services.database = { status: 'error', message: (error as Error).message }
           response.health.overall = 'unhealthy'
