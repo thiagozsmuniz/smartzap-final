@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
+import { getMetaAppCredentials } from '@/lib/meta-app-credentials'
 
 type GraphApiError = {
   message?: string
@@ -7,6 +8,67 @@ type GraphApiError = {
   code?: number
   error_subcode?: number
   fbtrace_id?: string
+}
+
+type GraphGetResult<T> =
+  | { ok: true; json: T }
+  | { ok: false; json: any; graphError: GraphApiError | null }
+
+async function graphGetJson<T>(
+  path: string,
+  accessToken: string,
+  params?: Record<string, string | number | boolean | undefined | null>
+): Promise<GraphGetResult<T>> {
+  const sp = new URLSearchParams()
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (v === undefined || v === null) continue
+      sp.set(k, String(v))
+    }
+  }
+
+  const url = `https://graph.facebook.com/v24.0/${path.replace(/^\//, '')}${sp.toString() ? `?${sp.toString()}` : ''}`
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    cache: 'no-store',
+  })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    return { ok: false, json, graphError: normalizeGraphApiError(json) }
+  }
+  return { ok: true, json }
+}
+
+async function wabaHasPhoneNumber(opts: {
+  wabaId: string
+  phoneNumberId: string
+  accessToken: string
+}): Promise<{
+  ok: boolean
+  matches: boolean | null
+  graphError: GraphApiError | null
+  raw?: any
+}> {
+  const result = await graphGetJson<{ data?: Array<{ id?: string }> }>(
+    `/${encodeURIComponent(opts.wabaId)}/phone_numbers`,
+    opts.accessToken,
+    { fields: 'id', limit: 200 }
+  )
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      matches: null,
+      graphError: result.graphError,
+      raw: (result.json as any)?.error || result.json,
+    }
+  }
+
+  const ids = Array.isArray((result.json as any)?.data) ? (result.json as any).data : []
+  const matches = ids.some((x: any) => String(x?.id || '') === String(opts.phoneNumberId))
+  return { ok: true, matches, graphError: null }
 }
 
 function normalizeGraphApiError(payload: any): GraphApiError | null {
@@ -28,6 +90,22 @@ function buildConnectionTroubleshooting(opts: {
 }) {
   const ge = opts.graphError
   const msg = (ge?.message || '').toLowerCase()
+
+  // Campo inexistente (mudança de API / query inválida)
+  if (msg.includes('tried accessing nonexisting field') && msg.includes('whatsapp_business_account')) {
+    return {
+      kind: 'invalid_fields' as const,
+      title: 'Consulta inválida (campo não existe no Graph)'
+      ,
+      summary:
+        'A query pediu um campo que não existe nesse tipo de objeto (isso pode acontecer por mudança de versão do Graph API ou exemplo desatualizado).',
+      nextSteps: [
+        'Tente novamente sem o campo whatsapp_business_account e valide o vínculo Phone↔WABA via /{WABA_ID}/phone_numbers.',
+        'No SmartZap, use o Diagnóstico Meta (settings/meta-diagnostics) para verificar acesso ao Phone e ao WABA.',
+      ],
+      docs: 'https://developers.facebook.com/docs/graph-api',
+    }
+  }
 
   // Meta-side: App arquivado/desativado
   if (msg.includes('api access deactivated') || msg.includes('to unarchive') || msg.includes('unarchive')) {
@@ -138,19 +216,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Teste real na Graph API: puxa alguns campos leves e confirma autorização.
-    const url = `https://graph.facebook.com/v24.0/${encodeURIComponent(phoneNumberId)}?fields=display_phone_number,verified_name,quality_rating,whatsapp_business_account`
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-      cache: 'no-store',
-    })
+    // 1) Teste real na Graph API: puxa campos leves do Phone e confirma autorização.
+    const phoneRes = await graphGetJson<any>(
+      `/${encodeURIComponent(phoneNumberId)}`,
+      accessToken,
+      { fields: 'display_phone_number,verified_name,quality_rating' }
+    )
 
-    const data = await res.json().catch(() => ({}))
-
-    if (!res.ok) {
-      const ge = normalizeGraphApiError(data)
+    if (!phoneRes.ok) {
+      const ge = phoneRes.graphError
       const message = ge?.message || 'Meta API rejeitou as credenciais'
       const code = ge?.code
       const errorSubcode = ge?.error_subcode
@@ -172,41 +246,115 @@ export async function POST(request: NextRequest) {
             nextSteps: troubleshooting.nextSteps,
             docs: troubleshooting.docs,
             fbtraceId: ge?.fbtrace_id || null,
-            raw: (data as any)?.error || data,
+            raw: (phoneRes.json as any)?.error || phoneRes.json,
           },
         },
         { status: 401 }
       )
     }
 
-    const wabaFromPhone = (data as any)?.whatsapp_business_account?.id as string | undefined
+    const phoneData = phoneRes.json
 
-    // Se o usuário informou WABA/BusinessAccountId e a Meta retornou o WABA do Phone,
-    // conferimos se bate (isso pega o erro clássico de IDs trocados).
+    // 2) Valida ou tenta inferir WABA
     const businessIdProvided = (businessAccountIdInput || '').trim()
-    if (businessIdProvided && wabaFromPhone && businessIdProvided !== wabaFromPhone) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: 'O Phone Number ID não pertence ao WABA informado.',
-          details: {
-            providedBusinessAccountId: businessIdProvided,
-            wabaFromPhone,
+
+    let wabaId: string | null = null
+    let wabaCandidates: string[] = []
+    let wabaInference: { attempted: boolean; method: 'provided' | 'debug_token' | 'none'; note?: string } = {
+      attempted: false,
+      method: 'none',
+    }
+
+    if (businessIdProvided) {
+      wabaInference = { attempted: true, method: 'provided' }
+      const link = await wabaHasPhoneNumber({
+        wabaId: businessIdProvided,
+        phoneNumberId,
+        accessToken,
+      })
+
+      if (link.ok && link.matches === true) {
+        wabaId = businessIdProvided
+      } else if (link.ok && link.matches === false) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'O Phone Number ID não pertence ao WABA informado.',
+            details: {
+              providedBusinessAccountId: businessIdProvided,
+              phoneNumberId,
+            },
           },
-        },
-        { status: 400 }
-      )
+          { status: 400 }
+        )
+      } else {
+        // Não conseguimos validar o vínculo (best-effort) — mas o Phone está acessível.
+        wabaId = businessIdProvided
+        wabaInference.note = 'Não foi possível validar o vínculo via /{waba}/phone_numbers (token pode não ter acesso ao WABA).' 
+      }
+    } else {
+      // Tentativa best-effort: /debug_token (precisa META_APP_ID + META_APP_SECRET)
+      const appCreds = await getMetaAppCredentials()
+      if (appCreds?.appId && appCreds?.appSecret) {
+        wabaInference = { attempted: true, method: 'debug_token' }
+        const appAccessToken = `${appCreds.appId}|${appCreds.appSecret}`
+        const dbg = await graphGetJson<any>('/debug_token', appAccessToken, { input_token: accessToken })
+
+        if (dbg.ok) {
+          const granular = Array.isArray(dbg.json?.data?.granular_scopes) ? dbg.json.data.granular_scopes : []
+          const targets = new Set<string>()
+          for (const g of granular) {
+            const ids = Array.isArray(g?.target_ids) ? g.target_ids : []
+            for (const id of ids) {
+              if (id == null) continue
+              const s = String(id)
+              if (s && s !== String(phoneNumberId)) targets.add(s)
+            }
+          }
+
+          wabaCandidates = Array.from(targets)
+
+          // Heurística segura: procura um candidato que contenha este phone em /{waba}/phone_numbers
+          for (const candidate of wabaCandidates) {
+            const link = await wabaHasPhoneNumber({
+              wabaId: candidate,
+              phoneNumberId,
+              accessToken,
+            })
+            if (link.ok && link.matches === true) {
+              wabaId = candidate
+              break
+            }
+          }
+
+          if (!wabaId) {
+            wabaInference.note = wabaCandidates.length
+              ? 'Encontramos candidatos via /debug_token, mas não conseguimos confirmar o vínculo via /{waba}/phone_numbers.'
+              : 'O /debug_token não trouxe target_ids (granular_scopes) suficientes para inferir o WABA.'
+          }
+        } else {
+          wabaInference.note = 'Não foi possível chamar /debug_token para inferir o WABA (best-effort).'
+        }
+      } else {
+        wabaInference = {
+          attempted: true,
+          method: 'none',
+          note: 'Para inferir WABA automaticamente, configure META_APP_ID e META_APP_SECRET (ou metaAppId/metaAppSecret nas settings).',
+        }
+      }
     }
 
     return NextResponse.json(
       {
         ok: true,
         phoneNumberId,
-        businessAccountId: businessAccountId || wabaFromPhone || null,
-        displayPhoneNumber: (data as any)?.display_phone_number || null,
-        verifiedName: (data as any)?.verified_name || null,
-        qualityRating: (data as any)?.quality_rating || null,
-        wabaId: wabaFromPhone || null,
+        businessAccountId: businessAccountId || wabaId || null,
+        displayPhoneNumber: (phoneData as any)?.display_phone_number || null,
+        verifiedName: (phoneData as any)?.verified_name || null,
+        qualityRating: (phoneData as any)?.quality_rating || null,
+        wabaId: wabaId || null,
+        wabaCandidates: wabaCandidates.length ? wabaCandidates : null,
+        wabaInference,
         usedStoredCredentials: shouldUseStoredCreds,
       },
       {

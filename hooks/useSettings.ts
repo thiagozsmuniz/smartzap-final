@@ -381,11 +381,19 @@ export const useSettingsController = () => {
 
       toast.dismiss(toastId);
 
+      // Se o backend conseguiu inferir o WABA e o usuário não preencheu, auto-preenche.
+      if (!formSettings.businessAccountId && result?.wabaId) {
+        setFormSettings((prev) => ({
+          ...prev,
+          businessAccountId: String(result.wabaId),
+        }));
+      }
+
       const phone = result.displayPhoneNumber || result.phoneNumberId || 'OK';
       toast.success('Teste de conexão bem-sucedido!', {
         description: result.verifiedName
-          ? `${phone} • ${result.verifiedName}`
-          : `${phone}`,
+          ? `${phone} • ${result.verifiedName}${(!formSettings.businessAccountId && result?.wabaId) ? `\nWABA preenchido automaticamente: ${result.wabaId}` : ''}`
+          : `${phone}${(!formSettings.businessAccountId && result?.wabaId) ? `\nWABA preenchido automaticamente: ${result.wabaId}` : ''}`,
       });
     } catch (err: any) {
       toast.dismiss(toastId);
@@ -397,9 +405,6 @@ export const useSettingsController = () => {
       const nextSteps = (details as any)?.details?.nextSteps as string[] | undefined
       const fbtraceId = (details as any)?.details?.fbtraceId as string | undefined
 
-      const wabaFromPhone = (details as any)?.details?.wabaFromPhone
-      const legacyHint = wabaFromPhone ? `WABA do Phone: ${wabaFromPhone}` : undefined
-
       const stepsPreview = Array.isArray(nextSteps) && nextSteps.length
         ? nextSteps.slice(0, 2).map((s) => `• ${s}`).join('\n')
         : null
@@ -407,7 +412,6 @@ export const useSettingsController = () => {
       const descriptionParts = [
         hintTitle ? `${hintTitle}: ${msg}` : msg,
         hint ? hint : null,
-        legacyHint ? legacyHint : null,
         stepsPreview,
         fbtraceId ? `fbtrace_id: ${fbtraceId}` : null,
       ].filter(Boolean)
