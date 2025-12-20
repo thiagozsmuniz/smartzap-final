@@ -1,7 +1,8 @@
 'use client'
 
 import Link, { LinkProps } from 'next/link'
-import { useState, ReactNode } from 'react'
+import { useRouter } from 'next/navigation'
+import { useRef, useState, ReactNode } from 'react'
 
 interface PrefetchLinkProps extends Omit<LinkProps, 'prefetch'> {
   children: ReactNode
@@ -30,18 +31,35 @@ export function PrefetchLink({
   title,
   ...props
 }: PrefetchLinkProps) {
+  const router = useRouter()
   const [shouldPrefetch, setShouldPrefetch] = useState(false)
+  const didPrefetchRef = useRef(false)
+
+  const tryPrefetch = () => {
+    if (didPrefetchRef.current) return
+    didPrefetchRef.current = true
+    setShouldPrefetch(true)
+
+    // `router.prefetch` só aceita string. No app, usamos `href` como string na prática.
+    if (typeof href === 'string') {
+      router.prefetch(href)
+    }
+  }
 
   const handleMouseEnter = () => {
-    setShouldPrefetch(true)
+    tryPrefetch()
     onMouseEnter?.()
   }
 
   return (
     <Link
       href={href}
+      // Mantém prefetch ligado (viewport) e também forçamos `router.prefetch` no hover.
+      // `shouldPrefetch` fica aqui para futuras estratégias, mas não muda o comportamento atual.
       prefetch={true}
       onMouseEnter={handleMouseEnter}
+      onFocus={tryPrefetch}
+      onTouchStart={tryPrefetch}
       onClick={onClick}
       className={className}
       title={title}

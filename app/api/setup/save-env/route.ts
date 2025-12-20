@@ -80,6 +80,11 @@ export interface SetupEnvVars {
   UPSTASH_API_KEY?: string
   UPSTASH_CONSOLE_URL?: string
 
+  // Upstash Redis (optional/recommended)
+  UPSTASH_REDIS_REST_URL?: string
+  UPSTASH_REDIS_REST_TOKEN?: string
+  WHATSAPP_STATUS_DEDUPE_TTL_SECONDS?: string
+
   // WhatsApp
   WHATSAPP_TOKEN?: string
   WHATSAPP_PHONE_ID?: string

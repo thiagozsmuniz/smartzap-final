@@ -11,6 +11,20 @@ interface CreateCampaignInput {
   templateVariables?: { header: string[], body: string[], buttons?: Record<string, string> };   // Meta API structure
 }
 
+export interface CampaignListParams {
+  limit: number;
+  offset: number;
+  search?: string;
+  status?: string;
+}
+
+export interface CampaignListResult {
+  data: Campaign[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 interface RealMessageStatus {
   phone: string;
   status: 'sent' | 'failed';
@@ -76,6 +90,21 @@ export interface CampaignPrecheckResult {
 }
 
 export const campaignService = {
+  list: async (params: CampaignListParams): Promise<CampaignListResult> => {
+    const searchParams = new URLSearchParams();
+    searchParams.set('limit', String(params.limit));
+    searchParams.set('offset', String(params.offset));
+    if (params.search) searchParams.set('search', params.search);
+    if (params.status && params.status !== 'All') searchParams.set('status', params.status);
+
+    const response = await fetch(`/api/campaigns?${searchParams.toString()}`);
+    if (!response.ok) {
+      console.error('Failed to fetch campaigns:', response.statusText);
+      return { data: [], total: 0, limit: params.limit, offset: params.offset };
+    }
+    return response.json();
+  },
+
   getAll: async (): Promise<Campaign[]> => {
     // Fetch from real API
     const response = await fetch('/api/campaigns');

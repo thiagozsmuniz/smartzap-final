@@ -23,6 +23,11 @@ export async function GET() {
         // QStash (required)
         qstashToken: !!process.env.QSTASH_TOKEN,
 
+        // Redis (recommended)
+        upstashRedisRestUrl: !!process.env.UPSTASH_REDIS_REST_URL,
+        upstashRedisRestToken: !!process.env.UPSTASH_REDIS_REST_TOKEN,
+        whatsappStatusDedupeTtlSeconds: !!process.env.WHATSAPP_STATUS_DEDUPE_TTL_SECONDS,
+
         // WhatsApp
         whatsappToken: !!process.env.WHATSAPP_TOKEN,
         whatsappPhoneId: !!process.env.WHATSAPP_PHONE_ID,
@@ -35,6 +40,7 @@ export async function GET() {
         database: status.supabaseUrl && status.supabaseAnonKey && status.supabaseServiceKey,
         qstash: status.qstashToken,
         whatsapp: status.whatsappToken && status.whatsappPhoneId && status.whatsappBusinessId,
+        redis: status.upstashRedisRestUrl && status.upstashRedisRestToken,
     }
 
     // WhatsApp é opcional no onboarding.

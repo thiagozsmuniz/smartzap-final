@@ -86,6 +86,54 @@ interface CampaignWizardViewProps {
   selectedContacts: Contact[];
   selectedContactIds: string[];
   toggleContact: (contactId: string) => void;
+
+  // Jobs/Ive audience
+  audiencePreset?:
+    | 'opt_in'
+    | 'new_7d'
+    | 'tag_top'
+    | 'no_tags'
+    | 'manual'
+    | 'all'
+    | 'test'
+    | null;
+  audienceCriteria?: {
+    status: 'OPT_IN' | 'OPT_OUT' | 'UNKNOWN' | 'ALL';
+    includeTag?: string | null;
+    createdWithinDays?: number | null;
+    excludeOptOut?: boolean;
+    noTags?: boolean;
+    uf?: string | null;
+    ddi?: string | null;
+    customFieldKey?: string | null;
+    customFieldMode?: 'exists' | 'equals' | null;
+    customFieldValue?: string | null;
+  };
+  topTag?: string | null;
+  audienceStats?: {
+    eligible: number;
+    optInEligible: number;
+    suppressed: number;
+    topTagEligible: number;
+    noTagsEligible: number;
+    brUfCounts?: Array<{ uf: string; count: number }>;
+    tagCountsEligible?: Array<{ tag: string; count: number }>;
+    ddiCountsEligible?: Array<{ ddi: string; count: number }>;
+    customFieldCountsEligible?: Array<{ key: string; count: number }>;
+  };
+  applyAudienceCriteria?: (criteria: {
+    status: 'OPT_IN' | 'OPT_OUT' | 'UNKNOWN' | 'ALL';
+    includeTag?: string | null;
+    createdWithinDays?: number | null;
+    excludeOptOut?: boolean;
+    noTags?: boolean;
+    uf?: string | null;
+    ddi?: string | null;
+    customFieldKey?: string | null;
+    customFieldMode?: 'exists' | 'equals' | null;
+    customFieldValue?: string | null;
+  }, preset?: 'opt_in' | 'new_7d' | 'tag_top' | 'no_tags' | 'manual' | 'all' | 'test') => void;
+  selectAudiencePreset?: (preset: 'opt_in' | 'new_7d' | 'tag_top' | 'no_tags' | 'manual' | 'all' | 'test') => void;
   availableTemplates: Template[];
   selectedTemplate?: Template;
   handleNext: () => void;
@@ -105,7 +153,6 @@ interface CampaignWizardViewProps {
 
   handleSend: (scheduledAt?: string) => void | Promise<void>;
   isCreating: boolean;
-  isLoading: boolean;
   // Test Contact
   testContact?: TestContact;
   isEnsuringTestContact?: boolean;
@@ -441,6 +488,13 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
   selectedContacts,
   selectedContactIds,
   toggleContact,
+  // Jobs/Ive audience
+  audiencePreset,
+  audienceCriteria,
+  topTag,
+  audienceStats,
+  applyAudienceCriteria,
+  selectAudiencePreset,
   availableTemplates,
   selectedTemplate,
   handleNext,
@@ -450,7 +504,6 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
   isPrechecking,
   handleSend,
   isCreating,
-  isLoading,
   testContact,
   isEnsuringTestContact,
   // Template Variables
@@ -505,6 +558,167 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
 
   const [templateSearch, setTemplateSearch] = useState('');
   const [hoveredTemplateId, setHoveredTemplateId] = useState<string | null>(null);
+  const [templateCategoryFilter, setTemplateCategoryFilter] = useState<'ALL' | 'MARKETING' | 'UTILIDADE' | 'AUTENTICACAO'>('ALL');
+
+  const isJobsAudienceMode =
+    typeof selectAudiencePreset === 'function' &&
+    typeof applyAudienceCriteria === 'function';
+
+  const optInCount = useMemo(() => {
+    // Preferir contagem já filtrada (opt-out + supressões), calculada no controller.
+    if (audienceStats) return audienceStats.optInEligible;
+    return (allContacts || []).filter((c) => c.status === 'OPT_IN').length;
+  }, [allContacts, audienceStats]);
+
+  const eligibleContactsCount = useMemo(() => {
+    // "Todos" = base - opt-out - supressões
+    if (audienceStats) return audienceStats.eligible;
+    return (allContacts || []).filter((c) => c.status !== 'OPT_OUT').length;
+  }, [allContacts, audienceStats]);
+
+  type AudienceDraft = {
+    status: 'OPT_IN' | 'OPT_OUT' | 'UNKNOWN' | 'ALL';
+    includeTag?: string | null;
+    createdWithinDays?: number | null;
+    excludeOptOut?: boolean;
+    noTags?: boolean;
+    uf?: string | null;
+    ddi?: string | null;
+    customFieldKey?: string | null;
+    customFieldMode?: 'exists' | 'equals' | null;
+    customFieldValue?: string | null;
+  };
+
+  const [isAudienceRefineOpen, setIsAudienceRefineOpen] = useState(false);
+  const [isSegmentsSheetOpen, setIsSegmentsSheetOpen] = useState(false);
+  const [segmentTagDraft, setSegmentTagDraft] = useState('');
+  const [segmentDdiDraft, setSegmentDdiDraft] = useState('');
+  const [segmentCustomFieldKeyDraft, setSegmentCustomFieldKeyDraft] = useState<string>('');
+  const [segmentCustomFieldModeDraft, setSegmentCustomFieldModeDraft] = useState<'exists' | 'equals'>('exists');
+  const [segmentCustomFieldValueDraft, setSegmentCustomFieldValueDraft] = useState('');
+  const [segmentOneContactDraft, setSegmentOneContactDraft] = useState('');
+  const [audienceDraft, setAudienceDraft] = useState<AudienceDraft>(() => ({
+    status: audienceCriteria?.status ?? 'OPT_IN',
+    includeTag: audienceCriteria?.includeTag ?? null,
+    createdWithinDays: audienceCriteria?.createdWithinDays ?? null,
+    excludeOptOut: audienceCriteria?.excludeOptOut ?? true,
+    noTags: audienceCriteria?.noTags ?? false,
+    uf: audienceCriteria?.uf ?? null,
+    ddi: audienceCriteria?.ddi ?? null,
+    customFieldKey: audienceCriteria?.customFieldKey ?? null,
+    customFieldMode: audienceCriteria?.customFieldMode ?? null,
+    customFieldValue: audienceCriteria?.customFieldValue ?? null,
+  }));
+
+  useEffect(() => {
+    if (!isAudienceRefineOpen) return;
+    setAudienceDraft({
+      status: audienceCriteria?.status ?? 'OPT_IN',
+      includeTag: audienceCriteria?.includeTag ?? null,
+      createdWithinDays: audienceCriteria?.createdWithinDays ?? null,
+      excludeOptOut: audienceCriteria?.excludeOptOut ?? true,
+      noTags: audienceCriteria?.noTags ?? false,
+      uf: audienceCriteria?.uf ?? null,
+      ddi: audienceCriteria?.ddi ?? null,
+      customFieldKey: audienceCriteria?.customFieldKey ?? null,
+      customFieldMode: audienceCriteria?.customFieldMode ?? null,
+      customFieldValue: audienceCriteria?.customFieldValue ?? null,
+    });
+  }, [isAudienceRefineOpen, audienceCriteria]);
+
+  const segmentsSubtitle = useMemo(() => {
+    // Mostra o “segmento atual” de forma direta.
+    if (audiencePreset === 'no_tags' || audienceCriteria?.noTags) {
+      return `Sem tags • ${audienceStats?.noTagsEligible ?? 0} contatos`;
+    }
+
+    if (audienceCriteria?.uf) {
+      const uf = String(audienceCriteria.uf).trim().toUpperCase();
+      const count = (audienceStats?.brUfCounts ?? []).find((x) => x.uf === uf)?.count ?? 0;
+      return `UF: ${uf} • ${count} contatos`;
+    }
+
+    if (audienceCriteria?.ddi) {
+      const ddi = String(audienceCriteria.ddi).trim().replace(/^\+/, '');
+      const count = (audienceStats?.ddiCountsEligible ?? []).find((x) => String(x.ddi) === ddi)?.count ?? 0;
+      return `DDI +${ddi} • ${count} contatos`;
+    }
+
+    if (audienceCriteria?.customFieldKey) {
+      const key = String(audienceCriteria.customFieldKey).trim();
+      const def = (customFields || []).find((f) => f.key === key);
+      const label = def?.label || key;
+      const count = (audienceStats?.customFieldCountsEligible ?? []).find((x) => x.key === key)?.count ?? 0;
+      return `${label} • ${count} contatos`;
+    }
+
+    if (audienceCriteria?.includeTag) {
+      const tag = String(audienceCriteria.includeTag).trim();
+      const key = tag.toLowerCase();
+      const count = (audienceStats?.tagCountsEligible ?? []).find((x) => String(x.tag).trim().toLowerCase() === key)?.count ?? 0;
+      return `Tag: ${tag} • ${count} contatos`;
+    }
+
+    const totalTags = audienceStats?.tagCountsEligible?.length ?? 0;
+    return totalTags > 0 ? `${totalTags} tags disponíveis` : 'Escolha uma tag';
+  }, [audienceCriteria, audiencePreset, audienceStats]);
+
+  const isAllCriteriaSelected = useMemo(() => {
+    // "Todos" = sem refinamentos (além das regras de negócio: opt-out/supressões)
+    // Qualquer critério adicional (tag/UF/sem tags/recência/status específico) vira "Segmentos".
+    if (!audienceCriteria) return audiencePreset === 'all';
+    const status = audienceCriteria.status ?? 'ALL';
+    const includeTag = (audienceCriteria.includeTag || '').trim();
+    const uf = (audienceCriteria.uf || '').trim();
+    const ddi = (audienceCriteria.ddi || '').trim();
+    const cfk = (audienceCriteria.customFieldKey || '').trim();
+    const createdWithinDays = audienceCriteria.createdWithinDays ?? null;
+    const noTags = !!audienceCriteria.noTags;
+
+    return (
+      status === 'ALL' &&
+      !includeTag &&
+      !uf &&
+      !ddi &&
+      !cfk &&
+      !noTags &&
+      !createdWithinDays
+    );
+  }, [audienceCriteria, audiencePreset]);
+
+  const isAutoSpecificSelection = useMemo(() => {
+    if (recipientSource !== 'specific') return false;
+    if (!isJobsAudienceMode) return false;
+    // No modo Jobs/Ive, "manual" explícito no controller usa excludeOptOut=false.
+    // Já seleção por critérios/segmentos (tag/UF/DDI/campos etc) vem com excludeOptOut=true.
+    return (audienceCriteria?.excludeOptOut ?? true) === true;
+  }, [recipientSource, isJobsAudienceMode, audienceCriteria?.excludeOptOut]);
+
+  const pickOneContact = (contactId: string, prefillSearch?: string) => {
+    if (recipientSource === 'test') return;
+    // Força modo manual para permitir seleção individual.
+    selectAudiencePreset?.('manual');
+    if (prefillSearch !== undefined) setContactSearchTerm(prefillSearch);
+    // Aguarda setSelectedContactIds([]) do preset manual antes de marcar.
+    setTimeout(() => {
+      toggleContact(contactId);
+    }, 0);
+  };
+
+  const isAllCardSelected = useMemo(() => {
+    if (!isJobsAudienceMode) return false;
+    if (recipientSource === 'test') return false;
+    // Quando o público vem do modo Jobs/Ive, usamos recipientSource=specific.
+    return (audiencePreset === 'all') || (recipientSource === 'specific' && isAllCriteriaSelected);
+  }, [audiencePreset, isAllCriteriaSelected, isJobsAudienceMode, recipientSource]);
+
+  const isSegmentsCardSelected = useMemo(() => {
+    if (!isJobsAudienceMode) return false;
+    if (recipientSource === 'test') return false;
+    // Segmentos = qualquer coisa que não seja "Todos" no critério.
+    // (inclui Tag, Sem tags, UF, status, recência, etc.)
+    return recipientSource === 'specific' && !isAllCriteriaSelected;
+  }, [isAllCriteriaSelected, isJobsAudienceMode, recipientSource]);
 
   // No modo teste, a única ação permitida é preencher variáveis com valor fixo.
   // Evita "corrigir contato" (que altera o cadastro) em um fluxo que é só para testar template.
@@ -543,21 +757,49 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
 
   // Filter templates based on search (or show only selected if one is chosen)
   const filteredTemplates = useMemo(() => {
+    const normalizeToken = (v: unknown) =>
+      String(v ?? '')
+        .trim()
+        .toUpperCase()
+        // remove acentos/diacríticos (AUTENTICAÇÃO -> AUTENTICACAO)
+        .normalize('NFD')
+        // eslint-disable-next-line no-control-regex
+        .replace(/\p{Diacritic}/gu, '');
+
+    const canonicalCategory = (v: unknown) => {
+      const raw = normalizeToken(v);
+      // Meta / WhatsApp Cloud API
+      if (raw === 'UTILITY') return 'UTILIDADE';
+      if (raw === 'AUTHENTICATION') return 'AUTENTICACAO';
+      // alguns providers legados
+      if (raw === 'TRANSACTIONAL') return 'UTILIDADE';
+      // já no nosso formato
+      if (raw === 'MARKETING') return 'MARKETING';
+      if (raw === 'UTILIDADE') return 'UTILIDADE';
+      if (raw === 'AUTENTICACAO') return 'AUTENTICACAO';
+      return raw;
+    };
+
     // If a template is selected, only show that one
     if (selectedTemplateId) {
       return availableTemplates.filter(t => t.id === selectedTemplateId);
     }
+
+    const byCategory = templateCategoryFilter === 'ALL'
+      ? availableTemplates
+      : availableTemplates.filter(t => canonicalCategory(t.category) === templateCategoryFilter);
+
     // Otherwise, filter by search
     if (!templateSearch.trim()) {
-      return availableTemplates;
+      return byCategory;
     }
     const search = templateSearch.toLowerCase();
-    return availableTemplates.filter(t =>
+    return byCategory.filter(t =>
       t.name.toLowerCase().includes(search) ||
       t.content.toLowerCase().includes(search) ||
       t.category.toLowerCase().includes(search)
     );
-  }, [availableTemplates, templateSearch, selectedTemplateId]);
+  }, [availableTemplates, templateSearch, selectedTemplateId, templateCategoryFilter]);
 
   // Get template to preview (hovered takes priority over selected)
   const previewTemplate = useMemo(() => {
@@ -755,11 +997,11 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
           [modernKey]: value,
         },
       });
+      return;
     }
   };
 
   // Hooks must be called before any conditional returns
-  const router = useRouter();
   const { rate: exchangeRate, hasRate } = useExchangeRate();
 
   const handleGoBack = () => {
@@ -788,8 +1030,6 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
       router.push('/campaigns');
     }
   };
-
-  if (isLoading) return <div className="text-white">Carregando assistente...</div>;
 
   // Calculate accurate pricing (only show total if recipients are selected AND we have exchange rate)
   const pricing = selectedTemplate && recipientCount > 0 && hasRate
@@ -925,13 +1165,47 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                     </PrefetchLink>
                   </div>
 
+                  {/* Category filter (Jobs/Ive) - only when no template is selected */}
+                  {!selectedTemplateId && availableTemplates.length > 0 && (
+                    <div className="mb-4 flex items-center gap-3">
+                      <div className="inline-flex rounded-xl bg-zinc-900 border border-white/10 p-1">
+                        {(
+                          [
+                            { id: 'ALL' as const, label: 'Todos', Icon: Circle },
+                            { id: 'MARKETING' as const, label: 'Marketing', Icon: TrendingUp },
+                            { id: 'UTILIDADE' as const, label: 'Utilidade', Icon: MessageSquare },
+                            { id: 'AUTENTICACAO' as const, label: 'Autenticação', Icon: ShieldAlert },
+                          ]
+                        ).map(({ id, label, Icon }) => {
+                          const active = templateCategoryFilter === id;
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => setTemplateCategoryFilter(id)}
+                              aria-pressed={active}
+                              className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-2 ${active
+                                ? 'bg-primary-500/20 text-primary-300 ring-1 ring-primary-500/30'
+                                : 'text-gray-400 hover:text-white hover:bg-white/5'
+                                }`}
+                            >
+                              <Icon size={14} />
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <span className="text-xs text-gray-500">Filtre por tipo</span>
+                    </div>
+                  )}
+
                   {/* Search bar - only show when no template is selected */}
                   {!selectedTemplateId && availableTemplates.length > 3 && (
                     <div className="relative mb-4">
                       <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
                       <input
                         type="text"
-                        placeholder="Buscar template por nome, conteúdo ou categoria..."
+                        placeholder="Buscar template por nome ou conteúdo..."
                         value={templateSearch}
                         onChange={(e) => setTemplateSearch(e.target.value)}
                         className="w-full pl-11 pr-4 py-3 bg-zinc-900 border border-white/20 rounded-xl focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500/50 outline-none transition-all text-white placeholder-gray-500 text-sm"
@@ -973,7 +1247,7 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                         <PrefetchLink href="/templates" className="text-primary-400 text-sm hover:underline">Sincronizar Templates</PrefetchLink>
                       </div>
                     )}
-                    {filteredTemplates.length === 0 && availableTemplates.length > 0 && !selectedTemplateId && (
+                    {filteredTemplates.length === 0 && availableTemplates.length > 0 && !selectedTemplateId && templateSearch.trim() && (
                       <div className="text-center p-8 border border-dashed border-white/10 rounded-xl">
                         <p className="text-gray-500 mb-2">Nenhum template encontrado para &ldquo;{templateSearch}&rdquo;</p>
                         <button
@@ -981,6 +1255,20 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                           className="text-primary-400 text-sm hover:underline"
                         >
                           Limpar busca
+                        </button>
+                      </div>
+                    )}
+
+                    {filteredTemplates.length === 0 && availableTemplates.length > 0 && !selectedTemplateId && !templateSearch.trim() && templateCategoryFilter !== 'ALL' && (
+                      <div className="text-center p-8 border border-dashed border-white/10 rounded-xl">
+                        <p className="text-gray-500 mb-2">
+                          Nenhum template de <span className="text-white">{templateCategoryFilter === 'AUTENTICACAO' ? 'Autenticação' : templateCategoryFilter === 'UTILIDADE' ? 'Utilidade' : 'Marketing'}</span> encontrado.
+                        </p>
+                        <button
+                          onClick={() => setTemplateCategoryFilter('ALL')}
+                          className="text-primary-400 text-sm hover:underline"
+                        >
+                          Ver todos
                         </button>
                       </div>
                     )}
@@ -1353,201 +1641,911 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                   <p className="text-gray-400">Quem deve receber esta campanha?</p>
                 </div>
 
-                {/* Test Contact Card - Always visible if configured */}
-                {testContact && (
-                  <div className="mb-4">
-                    <button
-                      onClick={() => setRecipientSource('test')}
-                      className={`relative w-full p-4 rounded-2xl border transition-all duration-200 flex items-center gap-4 ${recipientSource === 'test'
-                        ? 'bg-amber-500 text-black border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)]'
-                        : 'bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50 text-amber-300'
-                        }`}
-                    >
-                      {recipientSource === 'test' && (
-                        <div className="absolute top-3 right-3 text-black">
-                          <CheckCircleFilled size={18} />
-                        </div>
-                      )}
-                      <div className={`p-3 rounded-xl ${recipientSource === 'test'
-                        ? 'bg-black/20 text-black'
-                        : 'bg-amber-500/20 text-amber-400'
-                        }`}>
-                        <FlaskConical size={20} />
-                      </div>
-                      <div className="flex-1 text-left">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-bold text-sm">Enviar para Contato de Teste</h3>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${recipientSource === 'test' ? 'bg-black/20' : 'bg-amber-500/20'
+                {isJobsAudienceMode ? (
+                  <>
+                    {/* Test Contact Card - Always visible if configured */}
+                    {testContact && (
+                      <div className="mb-4">
+                        <button
+                          onClick={() => selectAudiencePreset?.('test')}
+                          className={`relative w-full p-4 rounded-2xl border transition-all duration-200 flex items-center gap-4 ${(audiencePreset === 'test' || recipientSource === 'test')
+                            ? 'bg-amber-500 text-black border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)]'
+                            : 'bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50 text-amber-300'
+                            }`}
+                        >
+                          {(audiencePreset === 'test' || recipientSource === 'test') && (
+                            <div className="absolute top-3 right-3 text-black">
+                              <CheckCircleFilled size={18} />
+                            </div>
+                          )}
+                          <div className={`p-3 rounded-xl ${(audiencePreset === 'test' || recipientSource === 'test')
+                            ? 'bg-black/20 text-black'
+                            : 'bg-amber-500/20 text-amber-400'
                             }`}>
-                            RECOMENDADO
-                          </span>
-                        </div>
-                        <p className={`text-xs mt-0.5 ${recipientSource === 'test' ? 'text-black/70' : 'text-amber-400/70'}`}>
-                          {testContact.name || 'Contato de Teste'} • +{testContact.phone}
-                        </p>
+                            <FlaskConical size={20} />
+                          </div>
+                          <div className="flex-1 text-left">
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-bold text-sm">Enviar para Contato de Teste</h3>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${(audiencePreset === 'test' || recipientSource === 'test') ? 'bg-black/20' : 'bg-amber-500/20'
+                                }`}>
+                                RECOMENDADO
+                              </span>
+                            </div>
+                            <p className={`text-xs mt-0.5 ${(audiencePreset === 'test' || recipientSource === 'test') ? 'text-black/70' : 'text-amber-400/70'}`}>
+                              {testContact.name || 'Contato de Teste'} • +{testContact.phone}
+                            </p>
+                          </div>
+                          {(audiencePreset === 'test' || recipientSource === 'test') && selectedTemplate && (
+                            <div className="text-right">
+                              <p className="text-xs font-bold text-black">
+                                {getPricingBreakdown(selectedTemplate.category, 1, 0, exchangeRate ?? 5.00).totalBRLFormatted}
+                              </p>
+                            </div>
+                          )}
+                        </button>
                       </div>
-                      {recipientSource === 'test' && selectedTemplate && (
-                        <div className="text-right">
-                          <p className="text-xs font-bold text-black">
-                            {getPricingBreakdown(selectedTemplate.category, 1, 0, exchangeRate ?? 5.00).totalBRLFormatted}
-                          </p>
-                        </div>
-                      )}
-                    </button>
-                  </div>
-                )}
+                    )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* All Contacts - Shows error style when exceeds limit */}
-                  <button
-                    onClick={() => setRecipientSource('all')}
-                    className={`relative p-6 rounded-2xl border transition-all duration-200 flex flex-col items-center justify-center gap-4 ${recipientSource === 'all' && totalContacts > currentLimit
-                      ? 'bg-red-500/10 text-red-300 border-red-500/50 scale-105'
-                      : recipientSource === 'all'
-                        ? 'bg-white text-black border-white shadow-[0_0_20px_rgba(255,255,255,0.1)] scale-105'
-                        : totalContacts > currentLimit
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Todos */}
+                      <button
+                        type="button"
+                        onClick={() => selectAudiencePreset?.('all')}
+                        className={`relative p-6 rounded-2xl border transition-all duration-200 flex flex-col items-center justify-center gap-4 h-full min-h-47.5 ${eligibleContactsCount > currentLimit
                           ? 'bg-zinc-900/50 border-red-500/30 text-gray-400 opacity-60'
-                          : 'bg-zinc-900/50 border-white/10 hover:bg-zinc-900 hover:border-white/20 text-gray-300'
-                      }`}
-                  >
-                    {recipientSource === 'all' && totalContacts <= currentLimit && (
-                      <div className="absolute top-3 right-3 text-black">
-                        <CheckCircleFilled size={20} />
-                      </div>
-                    )}
-                    {totalContacts > currentLimit && (
-                      <div className="absolute top-3 right-3 text-red-400">
-                        <ShieldAlert size={18} />
-                      </div>
-                    )}
-                    <div className={`p-4 rounded-full ${totalContacts > currentLimit
-                      ? 'bg-red-500/20 text-red-400'
-                      : recipientSource === 'all'
-                        ? 'bg-gray-200 text-black'
-                        : 'bg-zinc-800 text-gray-400'
-                      }`}>
-                      <Users size={24} />
-                    </div>
-                    <div className="text-center">
-                      <h3 className="font-bold text-sm">Todos os Contatos</h3>
-                      <p className={`text-xs mt-1 ${totalContacts > currentLimit ? 'text-red-400' : recipientSource === 'all' ? 'text-gray-600' : 'text-gray-500'}`}>
-                        {totalContacts} contatos
-                      </p>
-                      {totalContacts > currentLimit ? (
-                        <p className="text-xs mt-2 font-bold text-red-400">
-                          Excede limite ({currentLimit})
-                        </p>
-                      ) : recipientSource === 'all' && selectedTemplate ? (
-                        <p className="text-xs mt-2 font-bold text-primary-600">
-                          {getPricingBreakdown(selectedTemplate.category, totalContacts, 0, exchangeRate ?? 5.00).totalBRLFormatted}
-                        </p>
-                      ) : null}
-                    </div>
-                  </button>
+                          : isAllCardSelected
+                            ? 'bg-white text-black border-white shadow-[0_0_20px_rgba(255,255,255,0.10)] ring-2 ring-white/70'
+                            : 'bg-zinc-900/50 border-white/10 hover:bg-zinc-900 hover:border-white/20 text-gray-300'
+                          }`}
+                      >
+                        {isAllCardSelected && eligibleContactsCount <= currentLimit && (
+                          <div className="absolute top-3 right-3 text-black">
+                            <CheckCircleFilled size={20} />
+                          </div>
+                        )}
+                        {eligibleContactsCount > currentLimit && (
+                          <div className="absolute top-3 right-3 text-red-400">
+                            <ShieldAlert size={18} />
+                          </div>
+                        )}
+                        <div className={`p-4 rounded-full ${eligibleContactsCount > currentLimit
+                          ? 'bg-red-500/20 text-red-400'
+                          : isAllCardSelected
+                            ? 'bg-gray-200 text-black'
+                            : 'bg-zinc-800 text-gray-400'
+                          }`}>
+                          <Users size={24} />
+                        </div>
+                        <div className="text-center">
+                          <h3 className="font-bold text-sm">Todos</h3>
+                          <p className={`text-xs mt-1 ${eligibleContactsCount > currentLimit ? 'text-red-400' : isAllCardSelected ? 'text-gray-600' : 'text-gray-500'}`}>
+                            {eligibleContactsCount} contatos • exclui opt-out e supressões
+                          </p>
+                          {eligibleContactsCount > currentLimit ? (
+                            <p className="text-xs mt-2 font-bold text-red-400">
+                              Excede limite ({currentLimit})
+                            </p>
+                          ) : isAllCardSelected && selectedTemplate ? (
+                            <p className="text-xs mt-2 font-bold text-primary-600">
+                              {getPricingBreakdown(selectedTemplate.category, eligibleContactsCount, 0, exchangeRate ?? 5.00).totalBRLFormatted}
+                            </p>
+                          ) : null}
+                        </div>
+                      </button>
 
-                  {/* Select Specific - Highlighted as solution when All exceeds */}
-                  <button
-                    onClick={() => setRecipientSource('specific')}
-                    className={`relative p-6 rounded-2xl border transition-all duration-200 flex flex-col items-center justify-center gap-4 ${recipientSource === 'specific'
-                      ? 'bg-white text-black border-white shadow-[0_0_20px_rgba(255,255,255,0.1)] scale-105'
-                      : totalContacts > currentLimit && recipientSource === 'all'
-                        ? 'bg-primary-500/10 border-primary-500/50 text-primary-300 hover:bg-primary-500/20 ring-2 ring-primary-500/30'
-                        : 'bg-zinc-900/50 border-white/10 hover:bg-zinc-900 hover:border-white/20 text-gray-300'
-                      }`}
-                  >
-                    {recipientSource === 'specific' && (
-                      <div className="absolute top-3 right-3 text-black">
-                        <CheckCircleFilled size={20} />
-                      </div>
-                    )}
-                    {totalContacts > currentLimit && recipientSource !== 'specific' && (
-                      <div className="absolute top-3 right-3 text-primary-400">
-                        <Sparkles size={18} />
-                      </div>
-                    )}
-                    <div className={`p-4 rounded-full ${recipientSource === 'specific'
-                      ? 'bg-gray-200 text-black'
-                      : totalContacts > currentLimit
-                        ? 'bg-primary-500/20 text-primary-400'
-                        : 'bg-zinc-800 text-gray-400'
-                      }`}>
-                      <Smartphone size={24} />
+                      {/* Segmentos (Tag principal ou Sem tags) */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSegmentsSheetOpen(true);
+                          setIsAudienceRefineOpen(false);
+                        }}
+                        className={`relative p-6 rounded-2xl border transition-all duration-200 flex flex-col items-center justify-center gap-4 h-full min-h-47.5 ${isSegmentsCardSelected
+                          ? 'bg-white text-black border-white shadow-[0_0_20px_rgba(255,255,255,0.10)] ring-2 ring-white/70'
+                          : 'bg-zinc-900/50 border-white/10 hover:bg-zinc-900 hover:border-white/20 text-gray-300'
+                          }`}
+                      >
+                        {isSegmentsCardSelected && (
+                          <div className="absolute top-3 right-3 text-black">
+                            <CheckCircleFilled size={20} />
+                          </div>
+                        )}
+
+                        <div className={`p-4 rounded-full ${isSegmentsCardSelected ? 'bg-gray-200 text-black' : 'bg-zinc-800 text-gray-400'}`}>
+                          <LinkIcon size={24} />
+                        </div>
+
+                        <div className="text-center">
+                          <h3 className="font-bold text-sm">Segmentos</h3>
+                          <p className={`text-xs mt-1 ${isSegmentsCardSelected ? 'text-gray-600' : 'text-gray-500'}`}>
+                            {segmentsSubtitle}
+                          </p>
+                          {isSegmentsCardSelected && selectedTemplate ? (
+                            <p className="text-xs mt-2 font-bold text-primary-600">
+                              {getPricingBreakdown(selectedTemplate.category, recipientCount, 0, exchangeRate ?? 5.00).totalBRLFormatted}
+                            </p>
+                          ) : null}
+                        </div>
+                      </button>
                     </div>
-                    <div className="text-center">
-                      <h3 className="font-bold text-sm">
-                        {totalContacts > currentLimit && recipientSource !== 'specific' ? '✨ Selecionar Específicos' : 'Selecionar Específicos'}
-                      </h3>
-                      <p className={`text-xs mt-1 ${totalContacts > currentLimit && recipientSource !== 'specific'
-                        ? 'text-primary-400 font-medium'
-                        : recipientSource === 'specific'
-                          ? 'text-gray-600'
-                          : 'text-gray-500'
-                        }`}>
-                        {recipientSource === 'specific'
-                          ? `${recipientCount} selecionados`
+
+                    {/* Segmentos (inline) */}
+                    {isSegmentsSheetOpen && (
+                      <div className="bg-zinc-900/50 border border-white/10 rounded-2xl p-5 mt-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-bold text-white">Segmentos</p>
+                            <p className="text-xs text-gray-500">Escolhas rápidas — sem virar construtor de filtros.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsSegmentsSheetOpen(false)}
+                            className="p-2 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-colors"
+                            aria-label="Fechar"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+
+                        <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Tags</p>
+                              <button
+                                type="button"
+                                className="text-xs text-gray-400 hover:text-white transition-colors"
+                                onClick={() => setSegmentTagDraft('')}
+                                disabled={recipientSource === 'test'}
+                              >
+                                Limpar busca
+                              </button>
+                            </div>
+
+                            <Input
+                              value={segmentTagDraft}
+                              onChange={(e) => setSegmentTagDraft(e.target.value)}
+                              placeholder="Buscar tag…"
+                              className="bg-zinc-900 border-white/10 text-white placeholder:text-gray-500"
+                              disabled={recipientSource === 'test'}
+                            />
+
+                            <div className="max-h-56 overflow-auto rounded-xl border border-white/10 bg-zinc-950/30">
+                              {(audienceStats?.tagCountsEligible ?? [])
+                                .filter(({ tag }) => {
+                                  const q = (segmentTagDraft || '').trim().toLowerCase();
+                                  if (!q) return true;
+                                  return String(tag || '').toLowerCase().includes(q);
+                                })
+                                .slice(0, 50)
+                                .map(({ tag, count }) => (
+                                  <button
+                                    key={String(tag)}
+                                    type="button"
+                                    className="w-full px-3 py-2 flex items-center justify-between text-sm text-gray-200 hover:bg-zinc-800/60 transition-colors"
+                                    onClick={() => {
+                                      applyAudienceCriteria?.(
+                                        {
+                                          status: audienceCriteria?.status ?? 'ALL',
+                                          includeTag: String(tag || '').trim(),
+                                            createdWithinDays: audienceCriteria?.createdWithinDays ?? null,
+                                          excludeOptOut: true,
+                                          noTags: false,
+                                          uf: null,
+                                            ddi: null,
+                                            customFieldKey: null,
+                                            customFieldMode: null,
+                                            customFieldValue: null,
+                                        },
+                                        'manual'
+                                      );
+                                      setIsSegmentsSheetOpen(false);
+                                    }}
+                                    disabled={recipientSource === 'test'}
+                                  >
+                                    <span className="truncate pr-3">{String(tag)}</span>
+                                    <span className="text-xs text-gray-400 shrink-0">{count}</span>
+                                  </button>
+                                ))}
+
+                              {(audienceStats?.tagCountsEligible?.length ?? 0) === 0 && (
+                                <div className="px-3 py-3 text-xs text-gray-600">Nenhuma tag encontrada.</div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">País (DDI)</p>
+                            <p className="text-xs text-gray-500">Derivado do telefone (ex.: +55).</p>
+
+                            {(audienceStats?.ddiCountsEligible?.length ?? 0) > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {(audienceStats?.ddiCountsEligible ?? []).slice(0, 10).map(({ ddi, count }) => (
+                                  <button
+                                    key={ddi}
+                                    type="button"
+                                    onClick={() => {
+                                      applyAudienceCriteria?.(
+                                        {
+                                          status: audienceCriteria?.status ?? 'ALL',
+                                          includeTag: null,
+                                          createdWithinDays: audienceCriteria?.createdWithinDays ?? null,
+                                          excludeOptOut: true,
+                                          noTags: false,
+                                          uf: null,
+                                          ddi: String(ddi),
+                                          customFieldKey: null,
+                                          customFieldMode: null,
+                                          customFieldValue: null,
+                                        },
+                                        'manual'
+                                      );
+                                      setIsSegmentsSheetOpen(false);
+                                    }}
+                                    disabled={recipientSource === 'test'}
+                                    className="px-3 py-1 rounded-full bg-zinc-900 border border-white/10 text-gray-200 text-xs hover:bg-zinc-800 disabled:opacity-50 disabled:hover:bg-zinc-900"
+                                  >
+                                    +{ddi} <span className="text-gray-400">({count})</span>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-gray-600">Sem dados suficientes para sugerir DDI.</p>
+                            )}
+
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="col-span-2">
+                                <Input
+                                  value={segmentDdiDraft}
+                                  onChange={(e) => setSegmentDdiDraft(e.target.value)}
+                                  placeholder="ex: 55"
+                                  className="bg-zinc-900 border-white/10 text-white placeholder:text-gray-500"
+                                  disabled={recipientSource === 'test'}
+                                />
+                              </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="border-white/10 bg-zinc-900 text-white hover:bg-zinc-800"
+                                onClick={() => {
+                                  const ddi = String(segmentDdiDraft || '').trim().replace(/^\+/, '');
+                                  if (!ddi) return;
+                                  applyAudienceCriteria?.(
+                                    {
+                                      status: audienceCriteria?.status ?? 'ALL',
+                                      includeTag: null,
+                                      createdWithinDays: audienceCriteria?.createdWithinDays ?? null,
+                                      excludeOptOut: true,
+                                      noTags: false,
+                                      uf: null,
+                                      ddi,
+                                      customFieldKey: null,
+                                      customFieldMode: null,
+                                      customFieldValue: null,
+                                    },
+                                    'manual'
+                                  );
+                                  setIsSegmentsSheetOpen(false);
+                                }}
+                                disabled={recipientSource === 'test'}
+                              >
+                                Aplicar
+                              </Button>
+                            </div>
+
+                            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Estado (UF - BR)</p>
+                            <p className="text-xs text-gray-500">Derivado do DDD (não grava nada no banco).</p>
+
+                            {(audienceStats?.brUfCounts?.length ?? 0) > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {(audienceStats?.brUfCounts ?? []).slice(0, 12).map(({ uf, count }) => (
+                                  <button
+                                    key={uf}
+                                    type="button"
+                                    onClick={() => {
+                                      applyAudienceCriteria?.(
+                                        {
+                                          status: audienceCriteria?.status ?? 'ALL',
+                                          includeTag: null,
+                                          createdWithinDays: audienceCriteria?.createdWithinDays ?? null,
+                                          excludeOptOut: true,
+                                          noTags: false,
+                                          uf,
+                                          ddi: null,
+                                          customFieldKey: null,
+                                          customFieldMode: null,
+                                          customFieldValue: null,
+                                        },
+                                        'manual'
+                                      );
+                                      setIsSegmentsSheetOpen(false);
+                                    }}
+                                    disabled={recipientSource === 'test'}
+                                    className="px-3 py-1 rounded-full bg-zinc-900 border border-white/10 text-gray-200 text-xs hover:bg-zinc-800 disabled:opacity-50 disabled:hover:bg-zinc-900"
+                                  >
+                                    {uf} <span className="text-gray-400">({count})</span>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-gray-600">Sem dados suficientes para sugerir UFs.</p>
+                            )}
+
+                            <div className="pt-3 border-t border-white/5">
+                              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Campos personalizados</p>
+                              <p className="text-xs text-gray-500 mt-1">Filtre por um campo do contato.</p>
+
+                              <div className="grid grid-cols-1 gap-2 mt-2">
+                                <select
+                                  value={segmentCustomFieldKeyDraft}
+                                  onChange={(e) => setSegmentCustomFieldKeyDraft(e.target.value)}
+                                  className="w-full bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500"
+                                  disabled={recipientSource === 'test'}
+                                >
+                                  <option value="">Selecione um campo…</option>
+                                  {customFields
+                                    .filter((f) => f.entity_type === 'contact')
+                                    .sort((a, b) => a.label.localeCompare(b.label))
+                                    .map((f) => (
+                                      <option key={f.id} value={f.key}>
+                                        {f.label}
+                                      </option>
+                                    ))}
+                                </select>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                  <Button
+                                    type="button"
+                                    variant={segmentCustomFieldModeDraft === 'exists' ? 'default' : 'outline'}
+                                    className={segmentCustomFieldModeDraft === 'exists'
+                                      ? 'bg-primary-600 text-white hover:bg-primary-500'
+                                      : 'border-white/10 bg-zinc-900 text-white hover:bg-zinc-800'
+                                    }
+                                    onClick={() => setSegmentCustomFieldModeDraft('exists')}
+                                    disabled={recipientSource === 'test' || !segmentCustomFieldKeyDraft}
+                                  >
+                                    Tem valor
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant={segmentCustomFieldModeDraft === 'equals' ? 'default' : 'outline'}
+                                    className={segmentCustomFieldModeDraft === 'equals'
+                                      ? 'bg-primary-600 text-white hover:bg-primary-500'
+                                      : 'border-white/10 bg-zinc-900 text-white hover:bg-zinc-800'
+                                    }
+                                    onClick={() => setSegmentCustomFieldModeDraft('equals')}
+                                    disabled={recipientSource === 'test' || !segmentCustomFieldKeyDraft}
+                                  >
+                                    Igual a
+                                  </Button>
+                                </div>
+
+                                {segmentCustomFieldModeDraft === 'equals' && (
+                                  <Input
+                                    value={segmentCustomFieldValueDraft}
+                                    onChange={(e) => setSegmentCustomFieldValueDraft(e.target.value)}
+                                    placeholder="ex: prata"
+                                    className="bg-zinc-900 border-white/10 text-white placeholder:text-gray-500"
+                                    disabled={recipientSource === 'test' || !segmentCustomFieldKeyDraft}
+                                  />
+                                )}
+
+                                <Button
+                                  type="button"
+                                  className="bg-primary-600 text-white hover:bg-primary-500"
+                                  disabled={
+                                    recipientSource === 'test' ||
+                                    !segmentCustomFieldKeyDraft ||
+                                    (segmentCustomFieldModeDraft === 'equals' && !segmentCustomFieldValueDraft.trim())
+                                  }
+                                  onClick={() => {
+                                    const key = String(segmentCustomFieldKeyDraft || '').trim();
+                                    if (!key) return;
+                                    applyAudienceCriteria?.(
+                                      {
+                                        status: audienceCriteria?.status ?? 'ALL',
+                                        includeTag: null,
+                                        createdWithinDays: audienceCriteria?.createdWithinDays ?? null,
+                                        excludeOptOut: true,
+                                        noTags: false,
+                                        uf: null,
+                                        ddi: null,
+                                        customFieldKey: key,
+                                        customFieldMode: segmentCustomFieldModeDraft,
+                                        customFieldValue: segmentCustomFieldModeDraft === 'equals' ? segmentCustomFieldValueDraft.trim() : null,
+                                      },
+                                      'manual'
+                                    );
+                                    setIsSegmentsSheetOpen(false);
+                                  }}
+                                >
+                                  Aplicar
+                                </Button>
+                              </div>
+
+                              <div className="pt-4 border-t border-white/5 mt-4">
+                                <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Buscar 1 contato</p>
+                                <p className="text-xs text-gray-500 mt-1">Atalho para seleção manual.</p>
+
+                                <Input
+                                  value={segmentOneContactDraft}
+                                  onChange={(e) => setSegmentOneContactDraft(e.target.value)}
+                                  placeholder="Nome, telefone, email…"
+                                  className="bg-zinc-900 border-white/10 text-white placeholder:text-gray-500 mt-2"
+                                  disabled={recipientSource === 'test'}
+                                />
+
+                                {(segmentOneContactDraft || '').trim() && (
+                                  <div className="mt-2 max-h-40 overflow-auto rounded-xl border border-white/10 bg-zinc-950/30">
+                                    {allContacts
+                                      .filter((c) => c.status !== 'OPT_OUT')
+                                      .filter((c) => {
+                                        const q = segmentOneContactDraft.trim().toLowerCase();
+                                        const name = String(c.name || '').toLowerCase();
+                                        const phone = String(c.phone || '').toLowerCase();
+                                        const email = String(c.email || '').toLowerCase();
+                                        return name.includes(q) || phone.includes(q) || email.includes(q);
+                                      })
+                                      .slice(0, 8)
+                                      .map((c) => (
+                                        <button
+                                          key={c.id}
+                                          type="button"
+                                          className="w-full px-3 py-2 flex items-center justify-between text-sm text-gray-200 hover:bg-zinc-800/60 transition-colors"
+                                          onClick={() => {
+                                            pickOneContact(c.id, segmentOneContactDraft);
+                                            setIsSegmentsSheetOpen(false);
+                                          }}
+                                          disabled={recipientSource === 'test'}
+                                        >
+                                          <span className="truncate pr-3">{c.name || c.phone}</span>
+                                          <span className="text-xs text-gray-500 shrink-0 font-mono">{c.phone}</span>
+                                        </button>
+                                      ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-5 flex items-center justify-between gap-3">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="border-white/10 bg-zinc-900 text-white hover:bg-zinc-800"
+                            onClick={() => setIsSegmentsSheetOpen(false)}
+                          >
+                            Fechar
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="border-white/10 bg-zinc-900 text-white hover:bg-zinc-800"
+                            onClick={() => {
+                              setIsSegmentsSheetOpen(false);
+                              setIsAudienceRefineOpen(true);
+                            }}
+                            disabled={recipientSource === 'test'}
+                          >
+                            Ajustar status/recência…
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="mt-4 flex items-center justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="border-white/10 bg-zinc-900 hover:bg-zinc-800 text-white"
+                        onClick={() => selectAudiencePreset?.('manual')}
+                        disabled={recipientSource === 'test'}
+                      >
+                        Selecionar manualmente
+                      </Button>
+                    </div>
+
+                    {/* Mais opções (inline) */}
+                    {isAudienceRefineOpen && (
+                      <div className="bg-zinc-900/50 border border-white/10 rounded-2xl p-5 mt-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-bold text-white">Ajustar status/recência</p>
+                            <p className="text-xs text-gray-500">Ajuste fino (status, sem tags, recência). Para Tag/UF, use Segmentos.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsAudienceRefineOpen(false)}
+                            className="p-2 rounded-lg hover:bg-white/5 text-gray-400 hover:text-white transition-colors"
+                            aria-label="Fechar"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+
+                        <div className="mt-5 space-y-6">
+                          <div className="space-y-2">
+                            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Status</p>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Button
+                                type="button"
+                                variant={audienceDraft.status === 'OPT_IN' ? 'default' : 'outline'}
+                                className={audienceDraft.status === 'OPT_IN'
+                                  ? 'bg-primary-600 text-white hover:bg-primary-500'
+                                  : 'border-white/10 bg-zinc-900 text-white hover:bg-zinc-800'
+                                }
+                                onClick={() => setAudienceDraft((d) => ({ ...d, status: 'OPT_IN' }))}
+                              >
+                                Opt-in
+                              </Button>
+                              <Button
+                                type="button"
+                                variant={audienceDraft.status === 'ALL' ? 'default' : 'outline'}
+                                className={audienceDraft.status === 'ALL'
+                                  ? 'bg-primary-600 text-white hover:bg-primary-500'
+                                  : 'border-white/10 bg-zinc-900 text-white hover:bg-zinc-800'
+                                }
+                                onClick={() => setAudienceDraft((d) => ({ ...d, status: 'ALL' }))}
+                              >
+                                Todos
+                              </Button>
+                            </div>
+                            <label className="flex items-center gap-2 text-sm text-gray-300">
+                              <input
+                                type="checkbox"
+                                checked
+                                disabled
+                                className="w-4 h-4 text-primary-600 bg-zinc-800 border-white/10 rounded"
+                              />
+                              Opt-out sempre excluído (regra do WhatsApp)
+                            </label>
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Tags</p>
+                              <button
+                                type="button"
+                                className="text-xs text-gray-400 hover:text-white transition-colors"
+                                onClick={() => {
+                                  setIsAudienceRefineOpen(false);
+                                  setIsSegmentsSheetOpen(true);
+                                }}
+                                disabled={recipientSource === 'test'}
+                              >
+                                Abrir Segmentos
+                              </button>
+                            </div>
+                            <label className="flex items-center gap-2 text-sm text-gray-300">
+                              <input
+                                type="checkbox"
+                                checked={!!audienceDraft.noTags}
+                                onChange={(e) => setAudienceDraft((d) => ({ ...d, noTags: e.target.checked }))}
+                                className="w-4 h-4 text-primary-600 bg-zinc-800 border-white/10 rounded"
+                              />
+                              Somente contatos sem tags
+                            </label>
+                            <p className="text-xs text-gray-500">Escolha Tag/UF em <span className="text-gray-300">Segmentos</span> (com contagem por opção).</p>
+                          </div>
+
+                          <div className="space-y-2">
+                            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Criados nos últimos</p>
+                            <div className="grid grid-cols-3 gap-2">
+                              <Button
+                                type="button"
+                                variant={audienceDraft.createdWithinDays === 7 ? 'default' : 'outline'}
+                                className={audienceDraft.createdWithinDays === 7
+                                  ? 'bg-primary-600 text-white hover:bg-primary-500'
+                                  : 'border-white/10 bg-zinc-900 text-white hover:bg-zinc-800'
+                                }
+                                onClick={() => setAudienceDraft((d) => ({ ...d, createdWithinDays: 7 }))}
+                              >
+                                7 dias
+                              </Button>
+                              <Button
+                                type="button"
+                                variant={audienceDraft.createdWithinDays === 30 ? 'default' : 'outline'}
+                                className={audienceDraft.createdWithinDays === 30
+                                  ? 'bg-primary-600 text-white hover:bg-primary-500'
+                                  : 'border-white/10 bg-zinc-900 text-white hover:bg-zinc-800'
+                                }
+                                onClick={() => setAudienceDraft((d) => ({ ...d, createdWithinDays: 30 }))}
+                              >
+                                30 dias
+                              </Button>
+                              <Button
+                                type="button"
+                                variant={!audienceDraft.createdWithinDays ? 'default' : 'outline'}
+                                className={!audienceDraft.createdWithinDays
+                                  ? 'bg-primary-600 text-white hover:bg-primary-500'
+                                  : 'border-white/10 bg-zinc-900 text-white hover:bg-zinc-800'
+                                }
+                                onClick={() => setAudienceDraft((d) => ({ ...d, createdWithinDays: null }))}
+                              >
+                                Todos
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-5 flex items-center justify-between gap-3 w-full">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="border-white/10 bg-zinc-900 text-white hover:bg-zinc-800"
+                            onClick={() => {
+                              setAudienceDraft({
+                                status: 'OPT_IN',
+                                // não apagar Tag/UF escolhidos em Segmentos ao limpar "Mais opções"
+                                includeTag: audienceCriteria?.includeTag ?? null,
+                                createdWithinDays: null,
+                                excludeOptOut: true,
+                                noTags: false,
+                                uf: audienceCriteria?.uf ?? null,
+                              });
+                            }}
+                          >
+                            Limpar
+                          </Button>
+                          <Button
+                            type="button"
+                            className="bg-primary-600 text-white hover:bg-primary-500"
+                            onClick={() => {
+                              // Tag/UF são escolhidos em Segmentos. Aqui aplicamos apenas os ajustes finos.
+                              applyAudienceCriteria?.(
+                                {
+                                  ...audienceDraft,
+                                  includeTag: audienceCriteria?.includeTag ?? null,
+                                  uf: audienceCriteria?.uf ?? null,
+                                  ddi: audienceCriteria?.ddi ?? null,
+                                  customFieldKey: audienceCriteria?.customFieldKey ?? null,
+                                  customFieldMode: audienceCriteria?.customFieldMode ?? null,
+                                  customFieldValue: audienceCriteria?.customFieldValue ?? null,
+                                },
+                                'manual'
+                              );
+                              setIsAudienceRefineOpen(false);
+                            }}
+                          >
+                            Aplicar
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {/* Test Contact Card - Always visible if configured */}
+                    {testContact && (
+                      <div className="mb-4">
+                        <button
+                          onClick={() => setRecipientSource('test')}
+                          className={`relative w-full p-4 rounded-2xl border transition-all duration-200 flex items-center gap-4 ${recipientSource === 'test'
+                            ? 'bg-amber-500 text-black border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)]'
+                            : 'bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50 text-amber-300'
+                            }`}
+                        >
+                          {recipientSource === 'test' && (
+                            <div className="absolute top-3 right-3 text-black">
+                              <CheckCircleFilled size={18} />
+                            </div>
+                          )}
+                          <div className={`p-3 rounded-xl ${recipientSource === 'test'
+                            ? 'bg-black/20 text-black'
+                            : 'bg-amber-500/20 text-amber-400'
+                            }`}>
+                            <FlaskConical size={20} />
+                          </div>
+                          <div className="flex-1 text-left">
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-bold text-sm">Enviar para Contato de Teste</h3>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded ${recipientSource === 'test' ? 'bg-black/20' : 'bg-amber-500/20'
+                                }`}>
+                                RECOMENDADO
+                              </span>
+                            </div>
+                            <p className={`text-xs mt-0.5 ${recipientSource === 'test' ? 'text-black/70' : 'text-amber-400/70'}`}>
+                              {testContact.name || 'Contato de Teste'} • +{testContact.phone}
+                            </p>
+                          </div>
+                          {recipientSource === 'test' && selectedTemplate && (
+                            <div className="text-right">
+                              <p className="text-xs font-bold text-black">
+                                {getPricingBreakdown(selectedTemplate.category, 1, 0, exchangeRate ?? 5.00).totalBRLFormatted}
+                              </p>
+                            </div>
+                          )}
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* All Contacts - Shows error style when exceeds limit */}
+                      <button
+                        onClick={() => setRecipientSource('all')}
+                        className={`relative p-6 rounded-2xl border transition-all duration-200 flex flex-col items-center justify-center gap-4 h-full min-h-47.5 ${totalContacts > currentLimit
+                          ? 'bg-zinc-900/50 border-red-500/30 text-gray-400 opacity-60'
+                          : recipientSource === 'all'
+                            ? 'bg-white text-black border-white shadow-[0_0_20px_rgba(255,255,255,0.10)] ring-2 ring-white/70'
+                            : 'bg-zinc-900/50 border-white/10 hover:bg-zinc-900 hover:border-white/20 text-gray-300'
+                          }`}
+                      >
+                        {recipientSource === 'all' && totalContacts <= currentLimit && (
+                          <div className="absolute top-3 right-3 text-black">
+                            <CheckCircleFilled size={20} />
+                          </div>
+                        )}
+                        {totalContacts > currentLimit && (
+                          <div className="absolute top-3 right-3 text-red-400">
+                            <ShieldAlert size={18} />
+                          </div>
+                        )}
+                        <div className={`p-4 rounded-full ${totalContacts > currentLimit
+                          ? 'bg-red-500/20 text-red-400'
+                          : recipientSource === 'all'
+                            ? 'bg-gray-200 text-black'
+                            : 'bg-zinc-800 text-gray-400'
+                          }`}>
+                          <Users size={24} />
+                        </div>
+                        <div className="text-center">
+                          <h3 className="font-bold text-sm">Todos os Contatos</h3>
+                          <p className={`text-xs mt-1 ${totalContacts > currentLimit ? 'text-red-400' : recipientSource === 'all' ? 'text-gray-600' : 'text-gray-500'}`}>
+                            {totalContacts} contatos
+                          </p>
+                          {totalContacts > currentLimit ? (
+                            <p className="text-xs mt-2 font-bold text-red-400">
+                              Excede limite ({currentLimit})
+                            </p>
+                          ) : recipientSource === 'all' && selectedTemplate ? (
+                            <p className="text-xs mt-2 font-bold text-primary-600">
+                              {getPricingBreakdown(selectedTemplate.category, totalContacts, 0, exchangeRate ?? 5.00).totalBRLFormatted}
+                            </p>
+                          ) : null}
+                        </div>
+                      </button>
+
+                      {/* Select Specific - Highlighted as solution when All exceeds */}
+                      <button
+                        onClick={() => setRecipientSource('specific')}
+                        className={`relative p-6 rounded-2xl border transition-all duration-200 flex flex-col items-center justify-center gap-4 h-full min-h-47.5 ${recipientSource === 'specific'
+                          ? 'bg-white text-black border-white shadow-[0_0_20px_rgba(255,255,255,0.10)] ring-2 ring-white/70'
+                          : totalContacts > currentLimit && recipientSource === 'all'
+                            ? 'bg-primary-500/10 border-primary-500/50 text-primary-300 hover:bg-primary-500/20 ring-2 ring-primary-500/30'
+                            : 'bg-zinc-900/50 border-white/10 hover:bg-zinc-900 hover:border-white/20 text-gray-300'
+                          }`}
+                      >
+                        {recipientSource === 'specific' && (
+                          <div className="absolute top-3 right-3 text-black">
+                            <CheckCircleFilled size={20} />
+                          </div>
+                        )}
+                        {totalContacts > currentLimit && recipientSource !== 'specific' && (
+                          <div className="absolute top-3 right-3 text-primary-400">
+                            <Sparkles size={18} />
+                          </div>
+                        )}
+                        <div className={`p-4 rounded-full ${recipientSource === 'specific'
+                          ? 'bg-gray-200 text-black'
                           : totalContacts > currentLimit
-                            ? `Selecione até ${currentLimit}`
-                            : 'Escolher contatos'
-                        }
-                      </p>
-                      {recipientSource === 'specific' && selectedTemplate && recipientCount > 0 && (
-                        <p className="text-xs mt-2 font-bold text-primary-600">
-                          {getPricingBreakdown(selectedTemplate.category, recipientCount, 0, exchangeRate ?? 5.00).totalBRLFormatted}
-                        </p>
-                      )}
+                            ? 'bg-primary-500/20 text-primary-400'
+                            : 'bg-zinc-800 text-gray-400'
+                          }`}>
+                          <Smartphone size={24} />
+                        </div>
+                        <div className="text-center">
+                          <h3 className="font-bold text-sm">
+                            {totalContacts > currentLimit && recipientSource !== 'specific' ? '✨ Selecionar Específicos' : 'Selecionar Específicos'}
+                          </h3>
+                          <p className={`text-xs mt-1 ${totalContacts > currentLimit && recipientSource !== 'specific'
+                            ? 'text-primary-400 font-medium'
+                            : recipientSource === 'specific'
+                              ? 'text-gray-600'
+                              : 'text-gray-500'
+                            }`}>
+                            {recipientSource === 'specific'
+                              ? `${recipientCount} selecionados`
+                              : totalContacts > currentLimit
+                                ? `Selecione até ${currentLimit}`
+                                : 'Escolher contatos'
+                            }
+                          </p>
+                          {recipientSource === 'specific' && selectedTemplate && recipientCount > 0 && (
+                            <p className="text-xs mt-2 font-bold text-primary-600">
+                              {getPricingBreakdown(selectedTemplate.category, recipientCount, 0, exchangeRate ?? 5.00).totalBRLFormatted}
+                            </p>
+                          )}
+                        </div>
+                      </button>
                     </div>
-                  </button>
-                </div>
+                  </>
+                )}
 
                 {/* Contact Selection List */}
                 {recipientSource === 'specific' && (
                   <div className="bg-zinc-900/50 border border-white/10 rounded-xl p-6 mt-6 animate-in zoom-in duration-300">
                     <div className="flex items-center justify-between mb-4">
-                      <h4 className="text-white font-bold text-sm">Seus Contatos</h4>
-                      <span className="text-xs text-gray-500">{recipientCount}/{totalContacts} selecionados</span>
+                      <div className="min-w-0">
+                        <h4 className="text-white font-bold text-sm">
+                          {isAutoSpecificSelection ? 'Contatos do segmento' : 'Seus Contatos'}
+                        </h4>
+                        {isAutoSpecificSelection && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Seleção automática. Para ajustar manualmente, troque para “Escolher contatos”.
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-xs text-gray-500">{recipientCount}/{totalContacts} selecionados</span>
+                        {isAutoSpecificSelection && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="border-white/10 bg-zinc-900 text-white hover:bg-zinc-800"
+                            onClick={() => {
+                              selectAudiencePreset?.('manual');
+                            }}
+                          >
+                            Editar manualmente
+                          </Button>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Search Input */}
-                    <div className="relative mb-4">
-                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-                      <input
-                        type="text"
-                        placeholder="Buscar por nome, telefone, email ou tags..."
-                        value={contactSearchTerm}
-                        onChange={(e) => setContactSearchTerm(e.target.value)}
-                        className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-9 pr-4 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-primary-500 transition-colors"
-                      />
-                      {contactSearchTerm && (
-                        <button
-                          onClick={() => setContactSearchTerm('')}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
-                    </div>
+                    {!isAutoSpecificSelection && (
+                      <>
+                        {/* Search Input */}
+                        <div className="relative mb-4">
+                          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                          <input
+                            type="text"
+                            placeholder="Buscar por nome, telefone, email ou tags..."
+                            value={contactSearchTerm}
+                            onChange={(e) => setContactSearchTerm(e.target.value)}
+                            className="w-full bg-zinc-800 border border-white/10 rounded-lg pl-9 pr-4 py-2.5 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-primary-500 transition-colors"
+                          />
+                          {contactSearchTerm && (
+                            <button
+                              onClick={() => setContactSearchTerm('')}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white"
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
 
                     <div className="space-y-2 max-h-75 overflow-y-auto custom-scrollbar">
-                      {filteredContacts.length === 0 ? (
+                      {(isAutoSpecificSelection ? selectedContacts : filteredContacts).length === 0 ? (
                         <p className="text-gray-500 text-sm text-center py-8">
-                          {contactSearchTerm ? 'Nenhum contato encontrado para esta busca' : 'Nenhum contato encontrado'}
+                          {(!isAutoSpecificSelection && contactSearchTerm)
+                            ? 'Nenhum contato encontrado para esta busca'
+                            : 'Nenhum contato encontrado'}
                         </p>
                       ) : (
-                        filteredContacts.map((contact) => {
+                        (isAutoSpecificSelection ? selectedContacts : filteredContacts).map((contact) => {
                           const isSelected = selectedContactIds.includes(contact.id);
                           return (
                             <label
                               key={contact.id}
-                              className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${isSelected
+                              className={`flex items-center gap-3 p-3 rounded-lg transition-all ${isSelected
                                 ? 'bg-primary-500/10 border border-primary-500/30'
-                                : 'bg-zinc-800/50 border border-transparent hover:bg-zinc-800'
-                                }`}
+                                : 'bg-zinc-800/50 border border-transparent'
+                                } ${isAutoSpecificSelection ? 'cursor-default' : 'cursor-pointer hover:bg-zinc-800'}`}
                             >
                               <input
                                 type="checkbox"
                                 checked={isSelected}
-                                onChange={() => toggleContact(contact.id)}
-                                className="w-4 h-4 text-primary-600 bg-zinc-700 border-zinc-600 rounded focus:ring-primary-500"
+                                onChange={() => {
+                                  if (isAutoSpecificSelection) return;
+                                  toggleContact(contact.id);
+                                }}
+                                disabled={isAutoSpecificSelection}
+                                className="w-4 h-4 text-primary-600 bg-zinc-700 border-zinc-600 rounded focus:ring-primary-500 disabled:opacity-50"
                               />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium text-white truncate">{contact.name || contact.phone}</p>
@@ -2188,7 +3186,7 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
             )}
 
             {/* Navigation (mobile/tablet) */}
-            <div className="flex justify-between items-center p-6 border-t border-white/5 bg-zinc-900/30 mt-auto lg:hidden">
+            <div className={`flex items-center p-6 border-t border-white/5 bg-zinc-900/30 mt-auto lg:hidden ${step === 1 ? 'justify-center' : 'justify-between'}`}>
               {step > 1 ? (
                 <button
                   onClick={handleBack}
@@ -2205,7 +3203,10 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                 step === 2 && isOverLimit ? null : (
                   <button
                     onClick={handleNext}
-                    className="group relative px-8 py-3 rounded-xl bg-white text-black font-bold hover:bg-gray-200 transition-all flex items-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(255,255,255,0.2)] overflow-hidden"
+                    className={`group relative bg-white text-black font-bold hover:bg-gray-200 transition-all flex items-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(255,255,255,0.2)] overflow-hidden ${step === 1
+                      ? 'px-14 py-4 rounded-2xl text-lg min-w-65 justify-center'
+                      : 'px-8 py-3 rounded-xl'
+                      }`}
                   >
                     <span className="relative z-10 flex items-center gap-2">Continuar <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" /></span>
                   </button>
@@ -2346,7 +3347,7 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
             </div>
 
             {/* Navigation (desktop) */}
-            <div className="mt-4 pt-4 border-t border-white/5 flex items-center justify-between gap-3">
+            <div className={`mt-4 pt-4 border-t border-white/5 flex items-center gap-3 ${step === 1 ? 'justify-center' : 'justify-between'}`}>
               {step > 1 ? (
                 <button
                   onClick={handleBack}
@@ -2363,7 +3364,10 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                 step === 2 && isOverLimit ? null : (
                   <button
                     onClick={handleNext}
-                    className="group relative px-6 py-2.5 rounded-xl bg-white text-black font-bold hover:bg-gray-200 transition-all flex items-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(255,255,255,0.2)] overflow-hidden"
+                    className={`group relative bg-white text-black font-bold hover:bg-gray-200 transition-all flex items-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(255,255,255,0.2)] overflow-hidden ${step === 1
+                      ? 'px-10 py-4 rounded-2xl text-base min-w-60 justify-center'
+                      : 'px-6 py-2.5 rounded-xl'
+                      }`}
                   >
                     <span className="relative z-10 flex items-center gap-2">Continuar <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" /></span>
                   </button>

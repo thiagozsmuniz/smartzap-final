@@ -4,9 +4,9 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCampaignsController } from '@/hooks/useCampaigns'
 import { CampaignListView } from '@/components/features/campaigns/CampaignListView'
-import { Campaign } from '@/types'
+import type { CampaignListResult } from '@/services/campaignService'
 
-export function CampaignsClientWrapper({ initialData }: { initialData: Campaign[] }) {
+export function CampaignsClientWrapper({ initialData }: { initialData?: CampaignListResult }) {
     const router = useRouter()
     const {
         campaigns,
@@ -15,6 +15,10 @@ export function CampaignsClientWrapper({ initialData }: { initialData: Campaign[
         searchTerm,
         setFilter,
         setSearchTerm,
+        currentPage,
+        totalPages,
+        totalFiltered,
+        setCurrentPage,
         onDelete,
         onDuplicate,
         onRefresh,
@@ -43,6 +47,10 @@ export function CampaignsClientWrapper({ initialData }: { initialData: Campaign[
             searchTerm={searchTerm}
             onFilterChange={setFilter}
             onSearchChange={setSearchTerm}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalFiltered={totalFiltered}
+            onPageChange={setCurrentPage}
             onRefresh={onRefresh}
             onDelete={onDelete}
             onDuplicate={onDuplicate}

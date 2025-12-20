@@ -19,8 +19,46 @@ const localScheduleRegistry: Map<string, NodeJS.Timeout> =
  * GET /api/campaigns
  * List all campaigns from Supabase (NO CACHE - always fresh)
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const url = new URL(request.url)
+    const limitParam = url.searchParams.get('limit')
+    const offsetParam = url.searchParams.get('offset')
+    const search = url.searchParams.get('search') || ''
+    const status = url.searchParams.get('status') || ''
+
+    const wantsPaged =
+      limitParam !== null ||
+      offsetParam !== null ||
+      search.length > 0 ||
+      status.length > 0
+
+    if (wantsPaged) {
+      const limitRaw = Number(limitParam)
+      const offsetRaw = Number(offsetParam)
+      const limit = Math.max(1, Math.min(100, Number.isFinite(limitRaw) ? limitRaw : 20))
+      const offset = Math.max(0, Number.isFinite(offsetRaw) ? offsetRaw : 0)
+
+      const result = await campaignDb.list({
+        limit,
+        offset,
+        search,
+        status,
+      })
+
+      return NextResponse.json(
+        { ...result, limit, offset },
+        {
+          headers: {
+            // Disable ALL caching
+            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+          }
+        }
+      )
+    }
+
     const campaigns = await campaignDb.getAll()
     return NextResponse.json(campaigns, {
       headers: {

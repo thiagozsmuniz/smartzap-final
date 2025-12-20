@@ -75,6 +75,7 @@ export const useCampaignDetailsController = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const isTemp = Boolean(id && id.startsWith('temp_'))
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<MessageStatus | null>(null);
   const [includeReadInDelivered, setIncludeReadInDelivered] = useState(false);
@@ -110,11 +111,18 @@ export const useCampaignDetailsController = () => {
     },
   });
 
-  const campaign = campaignQuery.data as Campaign | undefined;
+  // Para campanhas temporárias (otimistas), usamos cache local do React Query.
+  // Isso evita a UX ruim de “Carregando...” enquanto o backend faz pré-check/dispatch.
+  const cachedTempCampaign = useMemo(() => {
+    if (!isTemp || !id) return undefined
+    return queryClient.getQueryData<Campaign>(['campaign', id])
+  }, [isTemp, id, queryClient])
+
+  const campaign = (isTemp ? cachedTempCampaign : (campaignQuery.data as Campaign | undefined))
 
   // Real-time updates via Supabase Realtime with smart debounce
   const { isConnected: isRealtimeConnected, shouldShowRefreshButton, telemetry } = useCampaignRealtime({
-    campaignId: id,
+    campaignId: (!isTemp ? id : undefined),
     status: campaign?.status,
     recipients: campaign?.recipients || 0,
     completedAt: campaign?.completedAt ?? undefined,
@@ -183,14 +191,21 @@ export const useCampaignDetailsController = () => {
     },
   });
 
+  const cachedTempMessages = useMemo(() => {
+    if (!isTemp || !id) return undefined
+    return queryClient.getQueryData<CampaignMessagesResponse>(['campaignMessages', id, filterStatus, includeReadInDelivered])
+  }, [isTemp, id, filterStatus, includeReadInDelivered, queryClient])
+
+  const messagesData = (isTemp ? cachedTempMessages : messagesQuery.data)
+
   const activeCampaign = campaignQuery.data as Campaign | undefined;
 
   // Messages (página 0) + páginas extras carregadas via "Carregar mais".
   const baseMessages: Message[] = useMemo(() => {
-    const data = messagesQuery.data;
+    const data = messagesData;
     if (!data) return [];
     return data.messages || [];
-  }, [messagesQuery.data]);
+  }, [messagesData]);
 
   const allLoadedMessages: Message[] = useMemo(() => {
     if (extraMessages.length === 0) return baseMessages
@@ -216,14 +231,14 @@ export const useCampaignDetailsController = () => {
   }, [baseMessages, extraMessages]);
 
   const messageStats = useMemo(() => {
-    const data = messagesQuery.data;
+    const data = messagesData;
     return data?.stats || null;
-  }, [messagesQuery.data]);
+  }, [messagesData]);
 
   const totalMessages = useMemo(() => {
-    const total = Number(messagesQuery.data?.pagination?.total ?? messageStats?.total ?? 0)
+    const total = Number(messagesData?.pagination?.total ?? messageStats?.total ?? 0)
     return total > 0 ? total : allLoadedMessages.length
-  }, [allLoadedMessages.length, messageStats?.total, messagesQuery.data?.pagination?.total])
+  }, [allLoadedMessages.length, messageStats?.total, messagesData?.pagination?.total])
 
   const canLoadMore = useMemo(() => {
     if (!id || id.startsWith('temp_')) return false
@@ -446,7 +461,7 @@ export const useCampaignDetailsController = () => {
   return {
     campaign: activeCampaign,
     messages: filteredMessages,
-    isLoading: campaignQuery.isLoading || messagesQuery.isLoading,
+    isLoading: isTemp ? false : (campaignQuery.isLoading || messagesQuery.isLoading),
     metrics: metricsQuery.data,
     searchTerm,
     setSearchTerm,

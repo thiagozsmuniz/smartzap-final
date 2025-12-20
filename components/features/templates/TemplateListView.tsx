@@ -202,8 +202,6 @@ export const TemplateListView: React.FC<TemplateListViewProps> = ({
 
   const hasSelection = selectedMetaTemplates.size > 0;
 
-  if (isLoading) return <div className="text-white">Carregando templates...</div>;
-
   return (
     <div className="space-y-8 pb-20 relative">
       {!hideHeader && (
@@ -378,7 +376,13 @@ export const TemplateListView: React.FC<TemplateListViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {templates.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={8} className="px-6 py-16 text-center text-gray-400">
+                    Carregando templates...
+                  </td>
+                </tr>
+              ) : templates.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-6 py-16 text-center">
                     <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-600">

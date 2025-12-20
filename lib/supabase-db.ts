@@ -14,6 +14,7 @@ import {
     CreateLeadFormDTO,
     UpdateLeadFormDTO,
     Template,
+    TemplateComponent,
     TemplateCategory,
     TemplateStatus,
     AppSettings,
@@ -91,6 +92,63 @@ export const campaignDb = {
             completedAt: row.completed_at,
             cancelledAt: (row as any).cancelled_at ?? null,
         }))
+    },
+
+    list: async (params: {
+        limit: number
+        offset: number
+        search?: string | null
+        status?: string | null
+    }): Promise<{ data: Campaign[]; total: number }> => {
+        const limit = Math.max(1, Math.min(100, Math.floor(params.limit || 20)))
+        const offset = Math.max(0, Math.floor(params.offset || 0))
+        const search = (params.search || '').trim()
+        const status = (params.status || '').trim()
+
+        let query = supabase
+            .from('campaigns')
+            .select(
+                'id,name,status,template_name,template_variables,total_recipients,sent,delivered,read,skipped,failed,created_at,scheduled_date,started_at,first_dispatch_at,last_sent_at,completed_at',
+                { count: 'exact' }
+            )
+
+        if (search) {
+            const like = `%${search}%`
+            query = query.or(`name.ilike.${like},template_name.ilike.${like}`)
+        }
+
+        if (status && status !== 'All') {
+            query = query.eq('status', status)
+        }
+
+        const { data, error, count } = await query
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1)
+
+        if (error) throw error
+
+        return {
+            data: (data || []).map(row => ({
+                id: row.id,
+                name: row.name,
+                status: row.status as CampaignStatus,
+                templateName: row.template_name,
+                templateVariables: row.template_variables as { header: string[], body: string[], buttons?: Record<string, string> } | undefined,
+                recipients: row.total_recipients,
+                sent: row.sent,
+                delivered: row.delivered,
+                read: row.read,
+                skipped: (row as any).skipped || 0,
+                failed: row.failed,
+                createdAt: row.created_at,
+                scheduledAt: row.scheduled_date,
+                startedAt: row.started_at,
+                firstDispatchAt: (row as any).first_dispatch_at ?? null,
+                lastSentAt: (row as any).last_sent_at ?? null,
+                completedAt: row.completed_at,
+            })),
+            total: count || 0,
+        }
     },
 
     getById: async (id: string): Promise<Campaign | undefined> => {
@@ -349,6 +407,94 @@ export const contactDb = {
             updatedAt: row.updated_at,
             custom_fields: row.custom_fields,
         }))
+    },
+
+    list: async (params: {
+        limit: number
+        offset: number
+        search?: string | null
+        status?: string | null
+        tag?: string | null
+    }): Promise<{ data: Contact[]; total: number }> => {
+        const limit = Math.max(1, Math.min(100, Math.floor(params.limit || 10)))
+        const offset = Math.max(0, Math.floor(params.offset || 0))
+        const search = (params.search || '').trim()
+        const status = (params.status || '').trim()
+        const tag = (params.tag || '').trim()
+
+        let query = supabase
+            .from('contacts')
+            .select('*', { count: 'exact' })
+
+        if (search) {
+            const like = `%${search}%`
+            query = query.or(`name.ilike.${like},phone.ilike.${like}`)
+        }
+
+        if (status && status !== 'ALL') {
+            query = query.eq('status', status)
+        }
+
+        if (tag && tag !== 'ALL') {
+            query = query.contains('tags', [tag])
+        }
+
+        const { data, error, count } = await query
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1)
+
+        if (error) throw error
+
+        return {
+            data: (data || []).map(row => ({
+                id: row.id,
+                name: row.name,
+                phone: row.phone,
+                email: row.email,
+                status: (row.status as ContactStatus) || ContactStatus.OPT_IN,
+                tags: row.tags || [],
+                lastActive: row.updated_at
+                    ? new Date(row.updated_at).toLocaleDateString()
+                    : (row.created_at ? new Date(row.created_at).toLocaleDateString() : '-'),
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+                custom_fields: row.custom_fields,
+            })),
+            total: count || 0,
+        }
+    },
+
+    getIds: async (params: {
+        search?: string | null
+        status?: string | null
+        tag?: string | null
+    }): Promise<string[]> => {
+        const search = (params.search || '').trim()
+        const status = (params.status || '').trim()
+        const tag = (params.tag || '').trim()
+
+        let query = supabase
+            .from('contacts')
+            .select('id')
+
+        if (search) {
+            const like = `%${search}%`
+            query = query.or(`name.ilike.${like},phone.ilike.${like}`)
+        }
+
+        if (status && status !== 'ALL') {
+            query = query.eq('status', status)
+        }
+
+        if (tag && tag !== 'ALL') {
+            query = query.contains('tags', [tag])
+        }
+
+        const { data, error } = await query
+
+        if (error) throw error
+
+        return (data || []).map((row: any) => String(row.id))
     },
 
     getById: async (id: string): Promise<Contact | undefined> => {
@@ -890,6 +1036,96 @@ export const campaignContactDb = {
 // TEMPLATES
 // ============================================================================
 
+const normalizeTemplateFormat = (format: unknown): TemplateComponent['format'] | undefined => {
+    if (typeof format !== 'string') return undefined
+    const normalized = format.toUpperCase()
+    if (normalized === 'TEXT' || normalized === 'IMAGE' || normalized === 'VIDEO' || normalized === 'DOCUMENT') {
+        return normalized as TemplateComponent['format']
+    }
+    return undefined
+}
+
+const normalizeTemplateComponents = (input: unknown): TemplateComponent[] => {
+    if (!input) return []
+    if (Array.isArray(input)) return input as TemplateComponent[]
+    if (typeof input === 'string') {
+        try {
+            const parsed = JSON.parse(input)
+            return normalizeTemplateComponents(parsed)
+        } catch {
+            return [{ type: 'BODY', text: input }]
+        }
+    }
+    if (typeof input !== 'object') return []
+
+    const value = input as any
+    if (Array.isArray(value.components)) {
+        return value.components as TemplateComponent[]
+    }
+
+    const components: TemplateComponent[] = []
+    const header = value.header
+    const body = value.body
+    const footer = value.footer
+    const buttons = value.buttons
+
+    if (header) {
+        if (typeof header === 'string') {
+            components.push({ type: 'HEADER', format: 'TEXT', text: header })
+        } else if (typeof header === 'object') {
+            const headerComponent: TemplateComponent = { type: 'HEADER' }
+            const format = normalizeTemplateFormat(header.format)
+            if (format) headerComponent.format = format
+            if (typeof header.text === 'string') headerComponent.text = header.text
+            if (header.example !== undefined) headerComponent.example = header.example
+            components.push(headerComponent)
+        }
+    }
+
+    if (body !== undefined) {
+        if (typeof body === 'string') {
+            components.push({ type: 'BODY', text: body })
+        } else if (typeof body === 'object') {
+            const bodyComponent: TemplateComponent = { type: 'BODY' }
+            if (typeof body.text === 'string') bodyComponent.text = body.text
+            if (body.example !== undefined) bodyComponent.example = body.example
+            components.push(bodyComponent)
+        }
+    } else if (typeof value.content === 'string') {
+        components.push({ type: 'BODY', text: value.content })
+    }
+
+    if (footer) {
+        if (typeof footer === 'string') {
+            components.push({ type: 'FOOTER', text: footer })
+        } else if (typeof footer === 'object') {
+            const footerText = typeof footer.text === 'string' ? footer.text : undefined
+            if (footerText) {
+                components.push({ type: 'FOOTER', text: footerText })
+            }
+        }
+    }
+
+    if (Array.isArray(buttons)) {
+        components.push({ type: 'BUTTONS', buttons })
+    }
+
+    return components
+}
+
+const getTemplateBodyText = (components: TemplateComponent[], raw: unknown): string => {
+    const bodyComponent = components.find(c => c.type === 'BODY' && typeof c.text === 'string')
+    if (bodyComponent?.text) return bodyComponent.text
+
+    if (raw && typeof raw === 'object') {
+        const maybe = raw as any
+        if (typeof maybe.content === 'string') return maybe.content
+        if (maybe.body && typeof maybe.body.text === 'string') return maybe.body.text
+    }
+
+    return ''
+}
+
 export const templateDb = {
     getAll: async (): Promise<Template[]> => {
         const { data, error } = await supabase
@@ -899,19 +1135,24 @@ export const templateDb = {
 
         if (error) throw error
 
-        return (data || []).map(row => ({
-            id: row.id,
-            name: row.name,
-            category: (row.category as TemplateCategory) || 'MARKETING',
-            language: row.language,
-            status: (row.status as TemplateStatus) || 'PENDING',
-            parameterFormat: ((row as any).parameter_format as any) || undefined,
-            specHash: (row as any).spec_hash ?? null,
-            fetchedAt: (row as any).fetched_at ?? null,
-            content: row.components,
-            preview: '',
-            lastUpdated: row.updated_at || row.created_at,
-        }))
+        return (data || []).map(row => {
+            const components = normalizeTemplateComponents(row.components)
+            const bodyText = getTemplateBodyText(components, row.components)
+            return {
+                id: row.id,
+                name: row.name,
+                category: (row.category as TemplateCategory) || 'MARKETING',
+                language: row.language,
+                status: (row.status as TemplateStatus) || 'PENDING',
+                parameterFormat: ((row as any).parameter_format as any) || undefined,
+                specHash: (row as any).spec_hash ?? null,
+                fetchedAt: (row as any).fetched_at ?? null,
+                content: bodyText,
+                preview: bodyText,
+                lastUpdated: row.updated_at || row.created_at,
+                components,
+            }
+        })
     },
 
     getByName: async (name: string): Promise<Template | undefined> => {
@@ -923,6 +1164,8 @@ export const templateDb = {
 
         if (error || !data) return undefined
 
+        const components = normalizeTemplateComponents(data.components)
+        const bodyText = getTemplateBodyText(components, data.components)
         return {
             id: data.id,
             name: data.name,
@@ -932,9 +1175,10 @@ export const templateDb = {
             parameterFormat: ((data as any).parameter_format as any) || undefined,
             specHash: (data as any).spec_hash ?? null,
             fetchedAt: (data as any).fetched_at ?? null,
-            content: data.components,
-            preview: '',
+            content: bodyText,
+            preview: bodyText,
             lastUpdated: data.updated_at || data.created_at,
+            components,
         }
     },
 
@@ -1290,4 +1534,3 @@ export const templateProjectDb = {
         if (error) throw error;
     }
 };
-

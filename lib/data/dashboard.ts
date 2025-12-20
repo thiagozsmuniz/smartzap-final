@@ -3,10 +3,10 @@ import { DashboardStats, ChartDataPoint } from '@/services/dashboardService'
 import { getCampaignsServer } from './campaigns'
 
 export async function getDashboardStatsServer(): Promise<{ stats: DashboardStats, recentCampaigns: any[] }> {
-    // Parallel fetch stats source data and campaigns
-    const [statsData, campaigns] = await Promise.all([
+    // Parallel fetch stats source data and recent campaigns
+    const [statsData, campaignsResult] = await Promise.all([
         supabase.from('campaigns').select('sent, delivered, read, failed, status'),
-        getCampaignsServer()
+        getCampaignsServer({ limit: 7, offset: 0 })
     ])
 
     // --- Aggregate Stats ---
@@ -45,6 +45,8 @@ export async function getDashboardStatsServer(): Promise<{ stats: DashboardStats
     const deliveryRate = totalSent > 0
         ? Math.round((totalDelivered / totalSent) * 100)
         : 0
+
+    const campaigns = campaignsResult.data || []
 
     // --- Chart Data ---
     // Based on recent campaigns

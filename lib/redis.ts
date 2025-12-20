@@ -1,12 +1,20 @@
 /**
- * Redis client (LEGADO)
+ * Redis client (Upstash)
  *
- * O SmartZap não usa mais Redis. Este arquivo existe apenas para manter
- * compatibilidade com imports antigos (ex.: `import { redis } from '@/lib/redis'`).
- *
- * Se você ainda precisa de cache/estado, prefira Supabase/Postgres ou outra solução.
+ * Mantemos esse arquivo como ponto único de acesso ao Redis.
+ * - Em produção (serverless), usamos Upstash Redis via REST.
+ * - Se não estiver configurado, exportamos `redis = null` (fallback seguro).
  */
 
-export const isRedisConfigured = (): boolean => false
+import { Redis } from '@upstash/redis'
 
-export const redis = null
+export const isRedisConfigured = (): boolean => {
+	return !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN)
+}
+
+export const redis: Redis | null = isRedisConfigured()
+	? new Redis({
+			url: process.env.UPSTASH_REDIS_REST_URL as string,
+			token: process.env.UPSTASH_REDIS_REST_TOKEN as string,
+		})
+	: null

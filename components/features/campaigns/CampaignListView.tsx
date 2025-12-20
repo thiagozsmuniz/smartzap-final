@@ -11,6 +11,10 @@ interface CampaignListViewProps {
   searchTerm: string;
   onFilterChange: (value: string) => void;
   onSearchChange: (value: string) => void;
+  currentPage: number;
+  totalPages: number;
+  totalFiltered: number;
+  onPageChange: (page: number) => void;
   onRefresh: () => void;
   onDelete: (id: string) => void;
   onDuplicate?: (id: string) => void;
@@ -86,6 +90,10 @@ export const CampaignListView: React.FC<CampaignListViewProps> = ({
   searchTerm,
   onFilterChange,
   onSearchChange,
+  currentPage,
+  totalPages,
+  totalFiltered,
+  onPageChange,
   onRefresh,
   onDelete,
   onDuplicate,
@@ -99,10 +107,6 @@ export const CampaignListView: React.FC<CampaignListViewProps> = ({
   deletingId,
   duplicatingId,
 }) => {
-  if (isLoading) {
-    return <div className="text-white">Carregando campanhas...</div>;
-  }
-
   return (
     <Page>
       <PageHeader>
@@ -165,7 +169,13 @@ export const CampaignListView: React.FC<CampaignListViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {campaigns.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                    Carregando campanhas...
+                  </td>
+                </tr>
+              ) : campaigns.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                     Nenhuma campanha encontrada com estes filtros.
@@ -317,6 +327,58 @@ export const CampaignListView: React.FC<CampaignListViewProps> = ({
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="px-6 py-4 border-t border-white/5 flex items-center justify-between">
+            <span className="text-sm text-gray-500">
+              Página {currentPage} de {totalPages} • {totalFiltered} campanha(s)
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onPageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="p-2 rounded-lg border border-white/10 text-gray-400 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <span aria-hidden="true">&lt;</span>
+              </button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum: number;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => onPageChange(pageNum)}
+                      className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${currentPage === pageNum
+                        ? 'bg-primary-500 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-white/5'
+                        }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => onPageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className="p-2 rounded-lg border border-white/10 text-gray-400 hover:text-white hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <span aria-hidden="true">&gt;</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </Page>
   );

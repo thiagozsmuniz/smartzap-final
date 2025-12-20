@@ -24,6 +24,8 @@ import {
   tryParseWebhookTimestampSeconds,
 } from '@/lib/whatsapp-status-events'
 
+import { shouldProcessWhatsAppStatusEvent } from '@/lib/whatsapp-webhook-dedupe'
+
 
 import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
 import { applyFlowMappingToContact } from '@/lib/flow-mapping'
@@ -300,6 +302,10 @@ export async function POST(request: NextRequest) {
           const messageId = String(statusUpdate?.id || '').trim()
           const status = normalizeMetaStatus(statusUpdate?.status)
           if (!messageId || !status) continue
+
+          // 80/20: dedupe antes de tocar no Postgres (reduz custo em retries/duplicatas)
+          const shouldProcess = await shouldProcessWhatsAppStatusEvent({ messageId, status })
+          if (!shouldProcess) continue
 
           const { iso: eventTsIso, raw: eventTsRaw } = tryParseWebhookTimestampSeconds((statusUpdate as any)?.timestamp)
 

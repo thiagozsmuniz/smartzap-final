@@ -377,18 +377,37 @@ export function useCampaignRealtime({
         return next
       })
 
-      // Atualiza lista de campanhas (se estiver em cache)
-      queryClient.setQueryData<any>(['campaigns'], (old: any) => {
-        if (!Array.isArray(old)) return old
-        return old.map((c: any) => {
-          if (!c || c.id !== campaignId) return c
+      // Atualiza listas de campanhas (paginadas ou completas)
+      queryClient.setQueriesData<any>({ queryKey: ['campaigns'] }, (old: any) => {
+        if (!old) return old
+        if (Array.isArray(old)) {
+          return old.map((c: any) => {
+            if (!c || c.id !== campaignId) return c
+            return {
+              ...c,
+              sent: Number(c.sent || 0) + Number(delta.sent || 0),
+              failed: Number(c.failed || 0) + Number(delta.failed || 0),
+              skipped: Number(c.skipped || 0) + Number(delta.skipped || 0),
+            }
+          })
+        }
+
+        if (Array.isArray(old.data)) {
           return {
-            ...c,
-            sent: Number(c.sent || 0) + Number(delta.sent || 0),
-            failed: Number(c.failed || 0) + Number(delta.failed || 0),
-            skipped: Number(c.skipped || 0) + Number(delta.skipped || 0),
+            ...old,
+            data: old.data.map((c: any) => {
+              if (!c || c.id !== campaignId) return c
+              return {
+                ...c,
+                sent: Number(c.sent || 0) + Number(delta.sent || 0),
+                failed: Number(c.failed || 0) + Number(delta.failed || 0),
+                skipped: Number(c.skipped || 0) + Number(delta.skipped || 0),
+              }
+            })
           }
-        })
+        }
+
+        return old
       })
 
       // Ajusta stats do endpoint de mensagens (se estiver em cache)

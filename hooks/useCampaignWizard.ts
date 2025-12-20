@@ -4,10 +4,12 @@ import { useNavigate } from '@/lib/navigation';
 import { toast } from 'sonner';
 import { campaignService, contactService, templateService } from '../services';
 import { settingsService } from '../services/settingsService';
-import { CampaignStatus, ContactStatus, Template, TestContact } from '../types';
+import { CampaignStatus, ContactStatus, MessageStatus, Template, TestContact } from '../types';
 import { useAccountLimits } from './useAccountLimits';
 import { CampaignValidation } from '../lib/meta-limits';
 import { countTemplateVariables } from '../lib/template-validator';
+import { getCountryCallingCodeFromPhone, normalizePhoneNumber } from '@/lib/phone-formatter';
+import { getBrazilUfFromPhone, isBrazilPhone } from '@/lib/br-geo';
 
 export const useCampaignWizardController = () => {
   const navigate = useNavigate();
@@ -21,6 +23,44 @@ export const useCampaignWizardController = () => {
   const [recipientSource, setRecipientSource] = useState<'all' | 'specific' | 'test' | null>(null);
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
   const [contactSearchTerm, setContactSearchTerm] = useState('');
+
+  // Jobs/Ive audience presets (simple, fast decisions)
+  type AudiencePresetId =
+    | 'opt_in'
+    | 'new_7d'
+    | 'tag_top'
+    | 'no_tags'
+    | 'manual'
+    | 'all'
+    | 'test'
+    | null;
+
+  type AudienceCriteria = {
+    status: 'OPT_IN' | 'OPT_OUT' | 'UNKNOWN' | 'ALL';
+    includeTag?: string | null;
+    createdWithinDays?: number | null;
+    excludeOptOut?: boolean;
+    noTags?: boolean;
+    uf?: string | null; // BR only (derivado via DDD)
+    ddi?: string | null; // País (DDI) derivado do telefone (ex.: "55")
+    customFieldKey?: string | null;
+    customFieldMode?: 'exists' | 'equals' | null;
+    customFieldValue?: string | null;
+  };
+
+  const [audiencePreset, setAudiencePreset] = useState<AudiencePresetId>(null);
+  const [audienceCriteria, setAudienceCriteria] = useState<AudienceCriteria>({
+    status: 'OPT_IN',
+    includeTag: null,
+    createdWithinDays: null,
+    excludeOptOut: true,
+    noTags: false,
+    uf: null,
+    ddi: null,
+    customFieldKey: null,
+    customFieldMode: null,
+    customFieldValue: null,
+  });
 
   // Template Variables State - Official Meta API Structure
   // header: array of values for header {{1}}, {{2}}, etc.
@@ -52,18 +92,31 @@ export const useCampaignWizardController = () => {
   const contactsQuery = useQuery({
     queryKey: ['contacts'],
     queryFn: contactService.getAll,
+    enabled: step >= 2,
+    staleTime: 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   const templatesQuery = useQuery({
     queryKey: ['templates'],
     queryFn: templateService.getAll,
-    select: (data) => data.filter(t => t.status === 'APPROVED')
+    select: (data) => data.filter(t => t.status === 'APPROVED'),
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   // Get settings (mostly for limits/credentials)
   const settingsQuery = useQuery({
     queryKey: ['settings'],
     queryFn: settingsService.get,
+    staleTime: 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   // NEW: Fetch test contact from DB (Source of Truth)
@@ -71,6 +124,9 @@ export const useCampaignWizardController = () => {
     queryKey: ['testContact'],
     queryFn: settingsService.getTestContact,
     staleTime: 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   // Prefer DB data, fallback to settings (legacy/local)
@@ -132,8 +188,6 @@ export const useCampaignWizardController = () => {
   useEffect(() => {
     if (recipientSource === 'all' && contactsQuery.data) {
       setSelectedContactIds(contactsQuery.data.map(c => c.id));
-    } else if (recipientSource === 'specific') {
-      setSelectedContactIds([]);
     } else if (recipientSource === 'test') {
       // Test mode doesn't use contact IDs - handled separately
       setSelectedContactIds([]);
@@ -152,9 +206,10 @@ export const useCampaignWizardController = () => {
       const pendingMessages = contacts.map((contact, index) => ({
         id: `msg_${tempId}_${index}`,
         campaignId: tempId,
+        contactId: contact.id,
         contactName: contact.name || contact.phone,
         contactPhone: contact.phone,
-        status: 'Pending' as const,
+        status: MessageStatus.PENDING,
         sentAt: '-',
       }));
 
@@ -162,15 +217,46 @@ export const useCampaignWizardController = () => {
       const pendingCampaign = {
         id: tempId,
         name: input.name,
-        template: input.templateName,
+        templateName: input.templateName,
         recipients: input.recipients,
+        // Prévia leve (não salvar a lista inteira para não explodir memória)
+        pendingContacts: contacts.slice(0, 50).map(c => ({
+          name: c.name || '',
+          phone: c.phone,
+        })),
         sent: 0,
+        delivered: 0,
+        read: 0,
+        skipped: 0,
+        failed: 0,
         status: (input.scheduledAt ? 'SCHEDULED' : 'SENDING') as CampaignStatus,
         createdAt: new Date().toISOString(),
       };
 
       queryClient.setQueryData(['campaign', tempId], pendingCampaign);
-      queryClient.setQueryData(['campaignMessages', tempId], pendingMessages);
+
+      // Importante:
+      // A tela de detalhes usa queryKey ['campaignMessages', id, filterStatus, includeRead].
+      // Aqui pré-populamos o formato esperado para evitar “Carregando...” enquanto o backend
+      // faz pré-check/dispatch (pode levar ~10s).
+      queryClient.setQueryData(['campaignMessages', tempId, null, false], {
+        messages: pendingMessages,
+        stats: {
+          total: pendingMessages.length,
+          pending: pendingMessages.length,
+          sent: 0,
+          delivered: 0,
+          read: 0,
+          skipped: 0,
+          failed: 0,
+        },
+        pagination: {
+          limit: pendingMessages.length,
+          offset: 0,
+          total: pendingMessages.length,
+          hasMore: false,
+        },
+      });
 
       // Navigate IMMEDIATELY (before API responds)
       navigate(`/campaigns/${tempId}`);
@@ -182,13 +268,18 @@ export const useCampaignWizardController = () => {
 
       // Copy cached data to real campaign ID
       if (tempId) {
-        const cachedMessages = queryClient.getQueryData(['campaignMessages', tempId]);
+        const cachedMessages = queryClient.getQueryData(['campaignMessages', tempId, null, false]);
         if (cachedMessages) {
-          queryClient.setQueryData(['campaignMessages', campaign.id], cachedMessages);
+          queryClient.setQueryData(['campaignMessages', campaign.id, null, false], cachedMessages);
         }
         // Clean up temp cache
         queryClient.removeQueries({ queryKey: ['campaign', tempId] });
         queryClient.removeQueries({ queryKey: ['campaignMessages', tempId] });
+      }
+
+      // Preenche imediatamente o cache da campanha real (evita flicker após replace)
+      if (campaign?.id) {
+        queryClient.setQueryData(['campaign', campaign.id], campaign);
       }
 
       queryClient.invalidateQueries({ queryKey: ['campaigns'] });
@@ -217,6 +308,395 @@ export const useCampaignWizardController = () => {
   const allContacts = contactsQuery.data || [];
   const totalContacts = allContacts.length;
   const selectedContacts = allContacts.filter(c => selectedContactIds.includes(c.id));
+
+  // Supressões globais por telefone (best-effort): mantém UI/contagens alinhadas com o backend.
+  const suppressionsQuery = useQuery({
+    queryKey: ['phoneSuppressionsActive', contactsQuery.dataUpdatedAt],
+    enabled: (contactsQuery.data?.length || 0) > 0,
+    queryFn: async (): Promise<{ phones: string[] }> => {
+      const phones = Array.from(
+        new Set((contactsQuery.data || []).map((c: any) => String(c?.phone || '').trim()).filter(Boolean))
+      );
+
+      if (phones.length === 0) return { phones: [] };
+
+      const res = await fetch('/api/phone-suppressions/active', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phones }),
+      });
+
+      if (!res.ok) {
+        // best-effort: se falhar, seguimos sem supressões para não travar o wizard
+        return { phones: [] };
+      }
+
+      return res.json();
+    },
+    select: (data) => {
+      const normalized = (data?.phones || [])
+        .map((p) => normalizePhoneNumber(String(p || '').trim()))
+        .filter(Boolean);
+      return new Set(normalized);
+    },
+    staleTime: 30 * 1000,
+  });
+
+  const suppressedPhones = suppressionsQuery.data || new Set<string>();
+
+  const topTag = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of allContacts) {
+      for (const t of c.tags || []) {
+        const key = String(t || '').trim();
+        if (!key) continue;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+    }
+    let best: { tag: string; count: number } | null = null;
+    for (const [tag, count] of counts.entries()) {
+      if (!best || count > best.count) best = { tag, count };
+    }
+    return best?.tag || null;
+  }, [allContacts]);
+
+  const audienceStats = useMemo(() => {
+    let eligible = 0;
+    let optInEligible = 0;
+    let suppressed = 0;
+    let topTagEligible = 0;
+    let noTagsEligible = 0;
+    const ufCounts = new Map<string, number>();
+    const tagCounts = new Map<string, { label: string; count: number }>();
+    const ddiCounts = new Map<string, number>();
+    const customFieldCounts = new Map<string, number>();
+
+    const top = (topTag || '').trim().toLowerCase();
+
+    for (const c of allContacts) {
+      const phone = normalizePhoneNumber(String((c as any)?.phone || '').trim());
+      const isSuppressed = !!phone && suppressedPhones.has(phone);
+      if (isSuppressed) suppressed += 1;
+
+      // Regra de negócio: opt-out nunca entra em audiência
+      if (c.status === ContactStatus.OPT_OUT) continue;
+      if (isSuppressed) continue;
+
+      eligible += 1;
+      if (c.status === ContactStatus.OPT_IN) optInEligible += 1;
+
+      const tags = (c.tags || []).map((t) => String(t || '').trim().toLowerCase()).filter(Boolean);
+      if (tags.length === 0) noTagsEligible += 1;
+      if (top && tags.includes(top)) topTagEligible += 1;
+
+      // Tags (elegíveis) - para seletor de tags no UI
+      for (const rawTag of c.tags || []) {
+        const label = String(rawTag || '').trim();
+        if (!label) continue;
+        const key = label.toLowerCase();
+        const curr = tagCounts.get(key);
+        if (!curr) tagCounts.set(key, { label, count: 1 });
+        else tagCounts.set(key, { label: curr.label, count: curr.count + 1 });
+      }
+
+      // UF (apenas BR) - calculado on-the-fly via DDD
+      if (isBrazilPhone(String((c as any)?.phone || '').trim())) {
+        const uf = getBrazilUfFromPhone(String((c as any)?.phone || '').trim());
+        if (uf) ufCounts.set(uf, (ufCounts.get(uf) || 0) + 1);
+      }
+
+      // DDI (País)
+      {
+        const ddi = getCountryCallingCodeFromPhone(String((c as any)?.phone || '').trim());
+        if (ddi) ddiCounts.set(ddi, (ddiCounts.get(ddi) || 0) + 1);
+      }
+
+      // Campos personalizados (conta quantos contatos elegíveis possuem cada key preenchida)
+      {
+        const cf = (c as any)?.custom_fields as Record<string, any> | undefined;
+        if (cf && typeof cf === 'object') {
+          for (const k of Object.keys(cf)) {
+            const key = String(k || '').trim();
+            if (!key) continue;
+            const v = (cf as any)[key];
+            const isEmpty = v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
+            if (isEmpty) continue;
+            customFieldCounts.set(key, (customFieldCounts.get(key) || 0) + 1);
+          }
+        }
+      }
+    }
+
+    const brUfCounts = Array.from(ufCounts.entries())
+      .map(([uf, count]) => ({ uf, count }))
+      .sort((a, b) => b.count - a.count || a.uf.localeCompare(b.uf));
+
+    const tagCountsEligible = Array.from(tagCounts.values())
+      .map(({ label, count }) => ({ tag: label, count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+
+    const ddiCountsEligible = Array.from(ddiCounts.entries())
+      .map(([ddi, count]) => ({ ddi, count }))
+      .sort((a, b) => b.count - a.count || a.ddi.localeCompare(b.ddi));
+
+    const customFieldCountsEligible = Array.from(customFieldCounts.entries())
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+
+    return {
+      eligible,
+      optInEligible,
+      suppressed,
+      topTagEligible,
+      noTagsEligible,
+      brUfCounts,
+      tagCountsEligible,
+      ddiCountsEligible,
+      customFieldCountsEligible,
+    };
+  }, [allContacts, suppressedPhones, topTag]);
+
+  const computeContactIdsByCriteria = (criteria: AudienceCriteria) => {
+    const now = Date.now();
+    const withinMs = criteria.createdWithinDays ? criteria.createdWithinDays * 24 * 60 * 60 * 1000 : null;
+
+    const out: string[] = [];
+    for (const c of allContacts) {
+      // Guard-rails de negócio (alinha com backend):
+      // - opt-out: nunca enviar
+      // - suprimidos: nunca enviar
+      if (c.status === 'OPT_OUT') continue;
+      const normalizedPhone = normalizePhoneNumber(String((c as any)?.phone || '').trim());
+      if (normalizedPhone && suppressedPhones.has(normalizedPhone)) continue;
+
+      // UF (BR)
+      if (criteria.uf) {
+        const targetUf = String(criteria.uf).trim().toUpperCase();
+        if (targetUf) {
+          const uf = getBrazilUfFromPhone(String((c as any)?.phone || '').trim());
+          if (!uf || uf !== targetUf) continue;
+        }
+      }
+
+      // DDI (País)
+      if (criteria.ddi) {
+        const target = String(criteria.ddi).trim().replace(/^\+/, '');
+        if (target) {
+          const ddi = getCountryCallingCodeFromPhone(String((c as any)?.phone || '').trim());
+          if (!ddi || String(ddi) !== target) continue;
+        }
+      }
+
+      // status
+      if (criteria.status !== 'ALL') {
+        if (c.status !== criteria.status) continue;
+      }
+
+      // no tags
+      const tags = c.tags || [];
+      if (criteria.noTags) {
+        if (tags.length !== 0) continue;
+      }
+
+      // include tag
+      if (criteria.includeTag) {
+        const target = String(criteria.includeTag).trim().toLowerCase();
+        if (!target) continue;
+        const has = tags.some((t) => String(t || '').trim().toLowerCase() === target);
+        if (!has) continue;
+      }
+
+      // custom field
+      if (criteria.customFieldKey) {
+        const key = String(criteria.customFieldKey).trim();
+        if (!key) continue;
+        const cf = (c as any)?.custom_fields as Record<string, any> | undefined;
+        const raw = cf && typeof cf === 'object' ? (cf as any)[key] : undefined;
+        const isEmpty = raw === null || raw === undefined || (typeof raw === 'string' && raw.trim() === '');
+
+        const mode = criteria.customFieldMode ?? 'exists';
+        if (mode === 'exists') {
+          if (isEmpty) continue;
+        } else if (mode === 'equals') {
+          if (isEmpty) continue;
+          const expected = String(criteria.customFieldValue ?? '').trim().toLowerCase();
+          if (!expected) continue;
+          const actual = String(raw).trim().toLowerCase();
+          if (actual !== expected) continue;
+        }
+      }
+
+      // created within
+      if (withinMs) {
+        const createdAt = (c as any).createdAt || (c as any).created_at;
+        if (!createdAt) continue;
+        const ts = new Date(String(createdAt)).getTime();
+        if (!Number.isFinite(ts)) continue;
+        if (now - ts > withinMs) continue;
+      }
+
+      out.push(c.id);
+    }
+    return out;
+  };
+
+  const applyAudienceCriteria = (criteria: AudienceCriteria, preset?: Exclude<AudiencePresetId, null>) => {
+    setRecipientSource('specific');
+    setAudiencePreset(preset ?? 'manual');
+    setAudienceCriteria(criteria);
+    const ids = computeContactIdsByCriteria(criteria);
+    setSelectedContactIds(ids);
+  };
+
+  const selectAudiencePreset = (preset: Exclude<AudiencePresetId, null>) => {
+    if (preset === 'test') {
+      setRecipientSource('test');
+      setAudiencePreset('test');
+      setSelectedContactIds([]);
+      return;
+    }
+
+    if (preset === 'all') {
+      // "Todos" no Jobs-mode = todos elegíveis (exclui OPT_OUT por segurança)
+      applyAudienceCriteria(
+        {
+          status: 'ALL',
+          includeTag: null,
+          createdWithinDays: null,
+          excludeOptOut: true,
+          noTags: false,
+          uf: null,
+          ddi: null,
+          customFieldKey: null,
+          customFieldMode: null,
+          customFieldValue: null,
+        },
+        'all'
+      );
+      return;
+    }
+
+    if (preset === 'manual') {
+      setRecipientSource('specific');
+      setAudiencePreset('manual');
+      setAudienceCriteria({
+        status: 'ALL',
+        includeTag: null,
+        createdWithinDays: null,
+        excludeOptOut: false,
+        noTags: false,
+        uf: null,
+        ddi: null,
+        customFieldKey: null,
+        customFieldMode: null,
+        customFieldValue: null,
+      });
+      setSelectedContactIds([]);
+      return;
+    }
+
+    if (preset === 'opt_in') {
+      applyAudienceCriteria(
+        {
+          status: 'OPT_IN',
+          includeTag: null,
+          createdWithinDays: null,
+          excludeOptOut: true,
+          noTags: false,
+          uf: null,
+          ddi: null,
+          customFieldKey: null,
+          customFieldMode: null,
+          customFieldValue: null,
+        },
+        'opt_in'
+      );
+      return;
+    }
+
+    if (preset === 'new_7d') {
+      applyAudienceCriteria(
+        {
+          status: 'OPT_IN',
+          includeTag: null,
+          createdWithinDays: 7,
+          excludeOptOut: true,
+          noTags: false,
+          uf: null,
+          ddi: null,
+          customFieldKey: null,
+          customFieldMode: null,
+          customFieldValue: null,
+        },
+        'new_7d'
+      );
+      return;
+    }
+
+    if (preset === 'tag_top') {
+      if (!topTag) {
+        applyAudienceCriteria(
+          {
+            status: 'OPT_IN',
+            includeTag: null,
+            createdWithinDays: null,
+            excludeOptOut: true,
+            noTags: false,
+            uf: null,
+            ddi: null,
+            customFieldKey: null,
+            customFieldMode: null,
+            customFieldValue: null,
+          },
+          'opt_in'
+        );
+        return;
+      }
+      applyAudienceCriteria(
+        {
+          status: 'OPT_IN',
+          includeTag: topTag,
+          createdWithinDays: null,
+          excludeOptOut: true,
+          noTags: false,
+          uf: null,
+          ddi: null,
+          customFieldKey: null,
+          customFieldMode: null,
+          customFieldValue: null,
+        },
+        'tag_top'
+      );
+      return;
+    }
+
+    if (preset === 'no_tags') {
+      applyAudienceCriteria(
+        {
+          status: 'OPT_IN',
+          includeTag: null,
+          createdWithinDays: null,
+          excludeOptOut: true,
+          noTags: true,
+          uf: null,
+          ddi: null,
+          customFieldKey: null,
+          customFieldMode: null,
+          customFieldValue: null,
+        },
+        'no_tags'
+      );
+    }
+  };
+
+  // Default audience (Jobs-mode): novos (7d), once contacts are available.
+  useEffect(() => {
+    if (step !== 2) return;
+    if (audiencePreset) return;
+    if (!allContacts || allContacts.length === 0) return;
+    // Default (simples): Todos (já exclui opt-out + supressões)
+    selectAudiencePreset('all');
+  }, [step, allContacts.length, audiencePreset]);
 
   // Filter contacts by search term (name, phone, email, tags)
   const filteredContacts = useMemo(() => {
@@ -592,6 +1072,14 @@ export const useCampaignWizardController = () => {
     selectedContacts,
     selectedContactIds,
     toggleContact,
+
+    // Jobs/Ive audience
+    audiencePreset,
+    audienceCriteria,
+    topTag,
+    applyAudienceCriteria,
+    selectAudiencePreset,
+    audienceStats,
     availableTemplates,
     selectedTemplate,
     handleNext,
@@ -599,8 +1087,6 @@ export const useCampaignWizardController = () => {
     handlePrecheck,
     handleSend,
     isCreating: createCampaignMutation.isPending,
-    isLoading: contactsQuery.isLoading || templatesQuery.isLoading || limitsLoading || settingsQuery.isLoading || testContactQuery.isLoading,
-
     // Pré-check (dry-run)
     precheckResult,
     isPrechecking,

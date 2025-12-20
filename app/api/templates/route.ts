@@ -136,7 +136,22 @@ async function syncTemplatesToLocalDb(templates: ReturnType<typeof fetchTemplate
 
 
 // GET /api/templates - Busca templates usando credenciais salvas (Supabase/env)
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const url = new URL(request.url)
+  const source = url.searchParams.get('source')
+  if (source === 'local') {
+    try {
+      const templates = await templateDb.getAll()
+      return NextResponse.json(templates)
+    } catch (error) {
+      console.error('Local templates error:', error)
+      return NextResponse.json(
+        { error: 'Falha ao buscar templates locais' },
+        { status: 500 }
+      )
+    }
+  }
+
   try {
     const credentials = await getWhatsAppCredentials()
 

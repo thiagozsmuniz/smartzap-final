@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { AlertTriangle, Loader2, RefreshCw, X } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -33,7 +33,11 @@ const sanitizeCustomFieldsForUpdate = (fields?: Record<string, any>) => {
   return out;
 };
 
-type ContactsQueryData = ContactsCache | Contact[] | undefined;
+type ContactsQueryData =
+  | ContactsCache
+  | Contact[]
+  | { data: Contact[]; total: number; limit?: number; offset?: number }
+  | undefined;
 
 const isContactsCache = (value: any): value is ContactsCache => {
   return !!value && typeof value === 'object' && Array.isArray(value.list) && value.byId && typeof value.byId === 'object';
@@ -58,6 +62,15 @@ const patchContactsQueryData = (current: ContactsQueryData, id: string, data: Co
     };
     const nextList = current.list.map((c) => (c.id === id ? patched : c));
     return { list: nextList, byId: { ...current.byId, [id]: patched } };
+  }
+
+  // Páginas paginadas { data, total }
+  if (typeof current === 'object' && Array.isArray((current as any).data)) {
+    const page = current as { data: Contact[]; total: number; limit?: number; offset?: number };
+    const nextData = page.data.map((c) =>
+      c.id === id ? ({ ...c, ...data, updatedAt: new Date().toISOString() } as Contact) : c
+    );
+    return { ...page, data: nextData };
   }
 
   return current;
@@ -186,13 +199,16 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
       await queryClient.cancelQueries({ queryKey: ['contacts'] });
       if (contactId) await queryClient.cancelQueries({ queryKey: ['contact', contactId] });
 
-      const previousContacts = queryClient.getQueryData<ContactsQueryData>(['contacts']);
+      const previousContacts = queryClient.getQueriesData<ContactsQueryData>({ queryKey: ['contacts'] });
       const previousContact = contactId
         ? queryClient.getQueryData<Contact>(['contact', contactId])
         : undefined;
 
       // Patch lista/cache principal (suporta Contact[] e { list, byId })
-      queryClient.setQueryData<ContactsQueryData>(['contacts'], (current) => patchContactsQueryData(current, id, data));
+      queryClient.setQueriesData<ContactsQueryData>(
+        { queryKey: ['contacts'] },
+        (current) => patchContactsQueryData(current, id, data)
+      );
 
       // Patch cache de detalhe
       if (contactId) {
@@ -212,7 +228,11 @@ export const ContactQuickEditModal: React.FC<ContactQuickEditModalProps> = ({
       onClose();
     },
     onError: (e: any, _vars, context) => {
-      if (context?.previousContacts) queryClient.setQueryData(['contacts'], context.previousContacts);
+      if (context?.previousContacts) {
+        context.previousContacts.forEach(([key, data]) => {
+          queryClient.setQueryData(key as QueryKey, data);
+        });
+      }
       if (contactId && context?.previousContact) queryClient.setQueryData(['contact', contactId], context.previousContact);
       toast.error(e?.message || 'Falha ao atualizar contato');
     },

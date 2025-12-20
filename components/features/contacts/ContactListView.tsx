@@ -241,8 +241,6 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
     }
   }, [editingContact]);
 
-  if (isLoading) return <div className="text-white">Carregando contatos...</div>;
-
   // --- Import Handlers ---
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -577,7 +575,13 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {contacts.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                    Carregando contatos...
+                  </td>
+                </tr>
+              ) : contacts.length === 0 ? (
                 <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">Nenhum contato encontrado.</td></tr>
               ) : (
                 contacts.map((contact) => (
@@ -1352,4 +1356,3 @@ export const ContactListView: React.FC<ContactListViewProps> = ({
     </Page>
   );
 };
-

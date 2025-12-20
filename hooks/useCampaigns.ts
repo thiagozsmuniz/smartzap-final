@@ -1,16 +1,54 @@
-import { useState, useMemo } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { campaignService } from '../services';
+import { useState, useEffect } from 'react';
+import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
+import { campaignService, type CampaignListResult } from '../services/campaignService';
 import { Campaign } from '../types';
 import { useRealtimeQuery } from './useRealtimeQuery';
 
+const ITEMS_PER_PAGE = 20;
+
+type CampaignsQueryData =
+  | Campaign[]
+  | CampaignListResult
+  | undefined;
+
+const removeCampaignFromCache = (current: CampaignsQueryData, id: string): CampaignsQueryData => {
+  if (!current) return current;
+  if (Array.isArray(current)) {
+    return current.filter(c => c.id !== id);
+  }
+  if (typeof current === 'object' && Array.isArray(current.data)) {
+    const before = current.data.length;
+    const nextData = current.data.filter(c => c.id !== id);
+    const removed = before !== nextData.length;
+    return {
+      ...current,
+      data: nextData,
+      total: removed ? Math.max(0, (current.total || 0) - 1) : current.total,
+    };
+  }
+  return current;
+};
+
 // --- Data Hook (React Query + Realtime) ---
-export const useCampaignsQuery = (initialData?: Campaign[]) => {
+export const useCampaignsQuery = (
+  params: { page: number; search: string; status: string },
+  initialData?: CampaignListResult
+) => {
+  const limit = ITEMS_PER_PAGE;
+  const offset = Math.max(0, (params.page - 1) * limit);
   return useRealtimeQuery({
-    queryKey: ['campaigns'],
-    queryFn: campaignService.getAll,
-    initialData: initialData,
+    queryKey: ['campaigns', { page: params.page, search: params.search, status: params.status }],
+    queryFn: () => campaignService.list({
+      limit,
+      offset,
+      search: params.search,
+      status: params.status,
+    }),
+    initialData,
+    placeholderData: (previous) => previous,
     staleTime: 15 * 1000,  // 15 segundos
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     // Realtime configuration
     table: 'campaigns',
     events: ['INSERT', 'UPDATE', 'DELETE'],
@@ -36,11 +74,12 @@ export const useCampaignMutations = () => {
       await queryClient.cancelQueries({ queryKey: ['campaigns'] });
 
       // Get the current data
-      const previousData = queryClient.getQueryData<Campaign[]>(['campaigns']);
+      const previousData = queryClient.getQueriesData<CampaignsQueryData>({ queryKey: ['campaigns'] });
 
-      // Optimistically remove from cache
-      queryClient.setQueryData<Campaign[]>(['campaigns'], (old) =>
-        old?.filter(c => c.id !== id) ?? []
+      // Optimistically remove from all cached pages
+      queryClient.setQueriesData<CampaignsQueryData>(
+        { queryKey: ['campaigns'] },
+        (old) => removeCampaignFromCache(old, id)
       );
 
       // Also remove from dashboard recent campaigns
@@ -53,7 +92,9 @@ export const useCampaignMutations = () => {
     onError: (_err, _id, context) => {
       // Rollback on error
       if (context?.previousData) {
-        queryClient.setQueryData(['campaigns'], context.previousData);
+        context.previousData.forEach(([key, data]) => {
+          queryClient.setQueryData(key as QueryKey, data);
+        });
       }
     },
     onSuccess: () => {
@@ -101,8 +142,20 @@ export const useCampaignMutations = () => {
 };
 
 // --- Controller Hook (Smart) ---
-export const useCampaignsController = (initialData?: Campaign[]) => {
-  const { data: campaigns = [], isLoading, error, refetch } = useCampaignsQuery(initialData);
+export const useCampaignsController = (initialData?: CampaignListResult) => {
+  // UI State
+  const [filter, setFilter] = useState<string>('All');
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const { data, isLoading, error, refetch } = useCampaignsQuery(
+    { page: currentPage, search: searchTerm.trim(), status: filter },
+    initialData
+  );
+
+  const campaigns = data?.data || [];
+  const totalFiltered = data?.total || 0;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / ITEMS_PER_PAGE));
   const {
     deleteCampaign,
     duplicateCampaign,
@@ -114,21 +167,15 @@ export const useCampaignsController = (initialData?: Campaign[]) => {
     clearLastDuplicatedCampaignId,
   } = useCampaignMutations();
 
-  // UI State
-  const [filter, setFilter] = useState<string>('All');
-  const [searchTerm, setSearchTerm] = useState<string>('');
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter, searchTerm]);
 
-  // Business Logic: Filtering
-  const filteredCampaigns = useMemo(() => {
-    if (!campaigns) return [];
-
-    return campaigns.filter(c => {
-      const matchesFilter = filter === 'All' || c.status === filter;
-      const matchesSearch = (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (c.templateName || '').toLowerCase().includes(searchTerm.toLowerCase());
-      return matchesFilter && matchesSearch;
-    });
-  }, [campaigns, filter, searchTerm]);
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   // Handlers
   const handleDelete = (id: string) => {
@@ -146,8 +193,8 @@ export const useCampaignsController = (initialData?: Campaign[]) => {
 
   return {
     // Data
-    campaigns: filteredCampaigns,
-    isLoading,
+    campaigns,
+    isLoading: isLoading && !data,
     error,
 
     // State
@@ -157,6 +204,10 @@ export const useCampaignsController = (initialData?: Campaign[]) => {
     // Setters
     setFilter,
     setSearchTerm,
+    currentPage,
+    setCurrentPage,
+    totalPages,
+    totalFiltered,
 
     // Actions
     onDelete: handleDelete,

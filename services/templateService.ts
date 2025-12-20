@@ -82,8 +82,8 @@ export interface GenerateUtilityResponse {
 
 export const templateService = {
   getAll: async (): Promise<Template[]> => {
-    // Chama a API; o servidor busca credenciais salvas (Supabase settings / env)
-    const response = await fetch('/api/templates', {
+    // Local-first: lê do Supabase e evita chamada à Meta no caminho crítico
+    const response = await fetch('/api/templates?source=local', {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -100,11 +100,25 @@ export const templateService = {
   },
 
   sync: async (): Promise<number> => {
-    // Since getAll now fetches from Meta, sync is just a re-fetch
-    // But to return the count of *new* templates, we'd need comparison logic.
-    // For now, let's just return the total count.
-    const templates = await templateService.getAll();
-    return templates.length;
+    // Sincroniza com Meta (manual) e retorna total obtido
+    const response = await fetch('/api/templates?sync=1', {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new TemplateServiceError(
+        errorData.error || 'Falha ao sincronizar templates da Meta',
+        response.status === 401 ? 'NOT_CONFIGURED' : 'FETCH_FAILED'
+      );
+    }
+
+    const payload = await response.json();
+    if (Array.isArray(payload)) return payload.length;
+    if (typeof payload?.count === 'number') return payload.count;
+    if (typeof payload?.total === 'number') return payload.total;
+    return 0;
   },
 
   // Note: Templates are created in Meta Business Manager and synced via getAll()

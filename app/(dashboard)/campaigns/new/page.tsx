@@ -25,6 +25,12 @@ export default function NewCampaignPage() {
       selectedContacts={controller.selectedContacts}
       selectedContactIds={controller.selectedContactIds}
       toggleContact={controller.toggleContact}
+      audiencePreset={controller.audiencePreset}
+      audienceCriteria={controller.audienceCriteria}
+      topTag={controller.topTag}
+      applyAudienceCriteria={controller.applyAudienceCriteria}
+      selectAudiencePreset={controller.selectAudiencePreset}
+      audienceStats={controller.audienceStats}
       availableTemplates={controller.availableTemplates}
       selectedTemplate={controller.selectedTemplate}
       handleNext={controller.handleNext}
@@ -32,7 +38,6 @@ export default function NewCampaignPage() {
       handlePrecheck={controller.handlePrecheck}
       handleSend={controller.handleSend}
       isCreating={controller.isCreating}
-      isLoading={controller.isLoading}
       testContact={controller.testContact}
       isEnsuringTestContact={controller.isEnsuringTestContact}
       precheckResult={controller.precheckResult}

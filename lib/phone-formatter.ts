@@ -218,6 +218,30 @@ export function normalizePhoneNumber(
 }
 
 /**
+ * Extrai o DDI (country calling code) de um telefone.
+ *
+ * Ex.: "+5521999999999" -> "55"
+ *
+ * @param phone Telefone em formato livre (com/sem +).
+ * @param defaultCountry País padrão quando não houver prefixo.
+ * @returns DDI como string numérica (sem "+") ou null quando não for possível.
+ */
+export function getCountryCallingCodeFromPhone(
+  phone: string,
+  defaultCountry: CountryCode = 'BR'
+): string | null {
+  const trimmed = String(phone || '').trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = parsePhoneNumber(trimmed, defaultCountry);
+    const code = parsed?.countryCallingCode;
+    return code ? String(code) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Formata um número para exibição (com espaçamento/pontuação amigáveis).
  *
  * @param phone Número em qualquer formato.

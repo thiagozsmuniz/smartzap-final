@@ -30,6 +30,8 @@ import {
 import React from 'react'
 import { HealthStatus } from '@/lib/health-check'
 import { getPageWidthClass, PageLayoutProvider, usePageLayout } from '@/components/providers/PageLayoutProvider'
+import { campaignService, contactService, templateService, settingsService } from '@/services'
+import { dashboardService } from '@/services/dashboardService'
 
 // Setup step interface
 interface SetupStep {
@@ -433,8 +435,8 @@ export function DashboardShell({
     initialHealthStatus
 }: {
     children: React.ReactNode
-    initialAuthStatus: any
-    initialHealthStatus: HealthStatus
+    initialAuthStatus?: any
+    initialHealthStatus?: HealthStatus | null
 }) {
     const pathname = usePathname()
     const router = useRouter()
@@ -447,10 +449,20 @@ export function DashboardShell({
     const { useRealtimeNotifications } = require('@/hooks/useRealtimeNotifications')
     useRealtimeNotifications({ enabled: true })
 
-    // Hydrate auth status in React Query if needed, or just use it directly
-    // For now we use the prop directly for immediate rendering
+    const { data: authStatus } = useQuery({
+        queryKey: ['authStatus'],
+        queryFn: async () => {
+            const response = await fetch('/api/auth/status')
+            if (!response.ok) throw new Error('Failed to fetch auth status')
+            return response.json()
+        },
+        initialData: initialAuthStatus ?? undefined,
+        staleTime: 5 * 60 * 1000,
+        refetchOnMount: false,
+        refetchOnWindowFocus: false,
+    })
 
-    const companyName = initialAuthStatus?.company?.name
+    const companyName = authStatus?.company?.name || initialAuthStatus?.company?.name
 
     // Logout handler
     const handleLogout = async () => {
@@ -471,19 +483,53 @@ export function DashboardShell({
         // console.log('Prefetching route:', path) // Debug
         switch (path) {
             case '/':
-                queryClient.prefetchQuery({ queryKey: ['dashboardStats'], staleTime: 15000 })
+                queryClient.prefetchQuery({
+                    queryKey: ['dashboardStats'],
+                    queryFn: dashboardService.getStats,
+                    staleTime: 15000,
+                })
+                queryClient.prefetchQuery({
+                    queryKey: ['recentCampaigns'],
+                    queryFn: dashboardService.getRecentCampaigns,
+                    staleTime: 15000,
+                })
                 break
             case '/campaigns':
-                queryClient.prefetchQuery({ queryKey: ['campaigns'], staleTime: 15000 })
+                queryClient.prefetchQuery({
+                    queryKey: ['campaigns', { page: 1, search: '', status: 'All' }],
+                    queryFn: () => campaignService.list({ limit: 20, offset: 0, search: '', status: 'All' }),
+                    staleTime: 15000,
+                })
                 break
             case '/templates':
-                queryClient.prefetchQuery({ queryKey: ['templates'], staleTime: Infinity })
+                queryClient.prefetchQuery({
+                    queryKey: ['templates'],
+                    queryFn: templateService.getAll,
+                    staleTime: Infinity,
+                })
                 break
             case '/contacts':
-                queryClient.prefetchQuery({ queryKey: ['contacts'], staleTime: 30000 })
+                queryClient.prefetchQuery({
+                    queryKey: ['contacts', { page: 1, search: '', status: 'ALL', tag: 'ALL' }],
+                    queryFn: () => contactService.list({ limit: 10, offset: 0, search: '', status: 'ALL', tag: 'ALL' }),
+                    staleTime: 30000,
+                })
                 break
             case '/settings':
-                queryClient.prefetchQuery({ queryKey: ['systemStatus'], staleTime: 60000 })
+                queryClient.prefetchQuery({
+                    queryKey: ['systemStatus'],
+                    queryFn: async () => {
+                        const response = await fetch('/api/system')
+                        if (!response.ok) throw new Error('Failed to fetch system status')
+                        return response.json()
+                    },
+                    staleTime: 60000,
+                })
+                queryClient.prefetchQuery({
+                    queryKey: ['settings'],
+                    queryFn: settingsService.get,
+                    staleTime: 60000,
+                })
                 break
         }
     }, [queryClient])
@@ -496,7 +542,7 @@ export function DashboardShell({
             if (!response.ok) throw new Error('Failed to fetch health')
             return response.json()
         },
-        initialData: initialHealthStatus,
+        initialData: initialHealthStatus ?? undefined,
         staleTime: 5 * 60 * 1000,
         gcTime: 10 * 60 * 1000,
         refetchInterval: (query) => {
@@ -508,9 +554,9 @@ export function DashboardShell({
         },
     })
 
-    const needsSetup = !healthStatus ||
-        healthStatus.services.database?.status !== 'ok' ||
-        healthStatus.services.qstash.status !== 'ok'
+    const needsSetup = !!healthStatus &&
+        (healthStatus.services.database?.status !== 'ok' ||
+            healthStatus.services.qstash.status !== 'ok')
 
     const navItems = [
         { path: '/', label: 'Dashboard', icon: LayoutDashboard },

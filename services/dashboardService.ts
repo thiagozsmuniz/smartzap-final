@@ -1,4 +1,5 @@
 import { Campaign } from '../types';
+import { campaignService } from './campaignService';
 
 export interface ChartDataPoint {
   name: string;
@@ -32,19 +33,14 @@ export const dashboardService = {
    */
   getStats: async (): Promise<DashboardStats> => {
     // Fazer ambas chamadas em PARALELO
-    const [statsResponse, campaignsResponse] = await Promise.all([
+    const [statsResponse, campaignsResult] = await Promise.all([
       fetch('/api/dashboard/stats', {
         cache: 'no-store',
         headers: {
           'Cache-Control': 'no-cache',
         },
       }),
-      fetch('/api/campaigns', {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache',
-        },
-      })
+      campaignService.list({ limit: 7, offset: 0, search: '', status: 'All' })
     ]);
     
     // Parse das respostas
@@ -52,9 +48,7 @@ export const dashboardService = {
       ? await statsResponse.json() 
       : { totalSent: 0, totalDelivered: 0, totalRead: 0, totalFailed: 0, activeCampaigns: 0, deliveryRate: 0 };
     
-    const campaigns: Campaign[] = campaignsResponse.ok 
-      ? await campaignsResponse.json() 
-      : [];
+    const campaigns: Campaign[] = campaignsResult?.data || [];
     
     // Chart data das campanhas recentes
     const chartData = campaigns.slice(0, 7).map(c => ({
@@ -78,15 +72,8 @@ export const dashboardService = {
    */
   getRecentCampaigns: async (): Promise<Campaign[]> => {
     try {
-      const response = await fetch('/api/campaigns', {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache',
-        },
-      });
-      if (!response.ok) return [];
-      const campaigns: Campaign[] = await response.json();
-      return campaigns.slice(0, 5);
+      const result = await campaignService.list({ limit: 5, offset: 0, search: '', status: 'All' });
+      return result.data || [];
     } catch {
       return [];
     }

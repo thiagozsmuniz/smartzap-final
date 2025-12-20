@@ -40,6 +40,11 @@ interface WizardData {
   upstashEmail: string
   upstashApiKey: string
 
+  // Upstash Redis (recommended)
+  upstashRedisRestUrl: string
+  upstashRedisRestToken: string
+  whatsappStatusDedupeTtlSeconds: string
+
   // Step 4: WhatsApp
   whatsappToken: string
   whatsappPhoneId: string
@@ -61,6 +66,9 @@ const initialData: WizardData = {
   qstashToken: '',
   upstashEmail: '',
   upstashApiKey: '',
+  upstashRedisRestUrl: '',
+  upstashRedisRestToken: '',
+  whatsappStatusDedupeTtlSeconds: '',
   whatsappToken: '',
   whatsappPhoneId: '',
   whatsappBusinessId: '',
@@ -213,6 +221,11 @@ function WizardContent() {
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: 'supabaseAnonKey',
           SUPABASE_SECRET_KEY: 'supabaseServiceKey',
           QSTASH_TOKEN: 'qstashToken',
+          UPSTASH_EMAIL: 'upstashEmail',
+          UPSTASH_API_KEY: 'upstashApiKey',
+          UPSTASH_REDIS_REST_URL: 'upstashRedisRestUrl',
+          UPSTASH_REDIS_REST_TOKEN: 'upstashRedisRestToken',
+          WHATSAPP_STATUS_DEDUPE_TTL_SECONDS: 'whatsappStatusDedupeTtlSeconds',
           WHATSAPP_TOKEN: 'whatsappToken',
           WHATSAPP_PHONE_ID: 'whatsappPhoneId',
           WHATSAPP_BUSINESS_ACCOUNT_ID: 'whatsappBusinessId',
@@ -620,6 +633,11 @@ function WizardContent() {
             SETUP_COMPANY_PHONE: data.phone,
           }
 
+          // Redis (opcional, mas recomendado): só persistir se foi preenchido.
+          if (data.upstashRedisRestUrl) envVars.UPSTASH_REDIS_REST_URL = data.upstashRedisRestUrl
+          if (data.upstashRedisRestToken) envVars.UPSTASH_REDIS_REST_TOKEN = data.upstashRedisRestToken
+          if (data.whatsappStatusDedupeTtlSeconds) envVars.WHATSAPP_STATUS_DEDUPE_TTL_SECONDS = data.whatsappStatusDedupeTtlSeconds
+
           // WhatsApp é opcional: só persistir se foi preenchido.
           if (!isWhatsAppEmpty()) {
             envVars.WHATSAPP_TOKEN = data.whatsappToken
@@ -670,6 +688,11 @@ function WizardContent() {
         SETUP_COMPANY_EMAIL: data.email,
         SETUP_COMPANY_PHONE: data.phone,
       }
+
+      // Redis (opcional, mas recomendado): só persistir se foi preenchido.
+      if (data.upstashRedisRestUrl) envVars.UPSTASH_REDIS_REST_URL = data.upstashRedisRestUrl
+      if (data.upstashRedisRestToken) envVars.UPSTASH_REDIS_REST_TOKEN = data.upstashRedisRestToken
+      if (data.whatsappStatusDedupeTtlSeconds) envVars.WHATSAPP_STATUS_DEDUPE_TTL_SECONDS = data.whatsappStatusDedupeTtlSeconds
 
       // WhatsApp é opcional: só persistir se foi preenchido.
       if (!isWhatsAppEmpty()) {
@@ -1094,6 +1117,63 @@ function WizardContent() {
                     autoFocus
                   />
                   <p className="text-xs text-zinc-500 mt-1">Encontre no QStash → <span className="font-medium">Quickstart</span> (variável <span className="font-mono">QSTASH_TOKEN</span>)</p>
+                </div>
+
+                <div className="pt-4 mt-4 border-t border-zinc-800">
+                  <h3 className="text-sm font-medium text-zinc-300 mb-2">
+                    Redis (Recomendado)
+                  </h3>
+                  <p className="text-xs text-zinc-500 mb-4">
+                    Usamos o Upstash Redis <span className="font-medium">somente</span> para deduplicar webhooks de status (ex.: retry do Meta)
+                    e reduzir carga no Postgres. Se você não configurar, o sistema continua funcionando.
+                  </p>
+
+                  <a
+                    href="https://console.upstash.com/redis"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-emerald-500 text-xs hover:underline mb-4"
+                  >
+                    Abrir Upstash Redis <ExternalLink className="w-3 h-3" />
+                  </a>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm text-zinc-400 mb-1">UPSTASH_REDIS_REST_URL</label>
+                      <input
+                        type="text"
+                        value={data.upstashRedisRestUrl}
+                        onChange={(e) => updateField('upstashRedisRestUrl', e.target.value)}
+                        placeholder="https://...-rest.upstash.io"
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent font-mono text-sm"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-zinc-400 mb-1">UPSTASH_REDIS_REST_TOKEN</label>
+                      <input
+                        type="password"
+                        value={data.upstashRedisRestToken}
+                        onChange={(e) => updateField('upstashRedisRestToken', e.target.value)}
+                        placeholder="***"
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent font-mono text-sm"
+                      />
+                      <p className="text-xs text-zinc-500 mt-1">Essas credenciais vêm do Redis Database → <span className="font-medium">REST API</span>.</p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm text-zinc-400 mb-1">TTL de dedupe (segundos) (opcional)</label>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        value={data.whatsappStatusDedupeTtlSeconds}
+                        onChange={(e) => updateField('whatsappStatusDedupeTtlSeconds', e.target.value)}
+                        placeholder="604800"
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent font-mono text-sm"
+                      />
+                      <p className="text-xs text-zinc-500 mt-1">Padrão interno: 7 dias. Limite: 60s até 30 dias.</p>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="pt-4 mt-4 border-t border-zinc-800">

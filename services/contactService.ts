@@ -23,6 +23,21 @@ export interface ImportResult {
   report: string;
 }
 
+export interface ContactListParams {
+  limit: number;
+  offset: number;
+  search?: string;
+  status?: string;
+  tag?: string;
+}
+
+export interface ContactListResult {
+  data: Contact[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 /**
  * Contact Service
  * All data is stored in Main Database (source of truth)
@@ -54,10 +69,40 @@ export const contactService = {
   },
 
   getTags: async (): Promise<string[]> => {
-    // Tags can be extracted from contacts
-    const contacts = await contactService.getAll();
-    const allTags = contacts.flatMap(c => c.tags || []);
-    return [...new Set(allTags)];
+    const response = await fetch('/api/contacts/tags', { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error('Falha ao buscar tags');
+    }
+    return response.json();
+  },
+
+  list: async (params: ContactListParams): Promise<ContactListResult> => {
+    const searchParams = new URLSearchParams();
+    searchParams.set('limit', String(params.limit));
+    searchParams.set('offset', String(params.offset));
+    if (params.search) searchParams.set('search', params.search);
+    if (params.status && params.status !== 'ALL') searchParams.set('status', params.status);
+    if (params.tag && params.tag !== 'ALL') searchParams.set('tag', params.tag);
+
+    const response = await fetch(`/api/contacts?${searchParams.toString()}`, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error('Falha ao buscar contatos');
+    }
+    return response.json();
+  },
+
+  getIds: async (params: { search?: string; status?: string; tag?: string }): Promise<string[]> => {
+    const searchParams = new URLSearchParams();
+    if (params.search) searchParams.set('search', params.search);
+    if (params.status && params.status !== 'ALL') searchParams.set('status', params.status);
+    if (params.tag && params.tag !== 'ALL') searchParams.set('tag', params.tag);
+
+    const qs = searchParams.toString();
+    const response = await fetch(`/api/contacts/ids${qs ? `?${qs}` : ''}`, { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error('Falha ao buscar IDs de contatos');
+    }
+    return response.json();
   },
 
   /**
