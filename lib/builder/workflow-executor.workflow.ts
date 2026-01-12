@@ -884,7 +884,7 @@ export async function executeWorkflow(
               }
             }
 
-            const stepResult = await executeActionStep({
+            let stepResult = await executeActionStep({
               actionType,
               config: processedConfig,
               outputs,
@@ -893,6 +893,10 @@ export async function executeWorkflow(
               variables,
               executionDefaults,
             });
+            if (debugAskQuestion && stepResult && typeof stepResult === "object") {
+              (stepResult as Record<string, unknown>)._debugAskQuestion =
+                debugAskQuestion;
+            }
 
             const isErrorResult =
               stepResult &&
