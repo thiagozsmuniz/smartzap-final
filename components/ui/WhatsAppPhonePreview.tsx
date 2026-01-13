@@ -437,6 +437,7 @@ const MessageHeader: React.FC<MessageHeaderProps> = ({
       return (
         <div className="bg-[#202c33] rounded-lg rounded-tl-none shadow-sm mb-1 overflow-hidden">
           {resolvedHeaderMediaPreviewUrl ? (
+            /* eslint-disable-next-line @next/next/no-img-element -- Dynamic user-provided media URL */
             <img
               src={resolvedHeaderMediaPreviewUrl}
               alt="Prévia da mídia do cabeçalho"

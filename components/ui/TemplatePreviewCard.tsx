@@ -379,6 +379,7 @@ export const TemplatePreviewCard: React.FC<TemplatePreviewCardProps> = ({
               playsInline
             />
           ) : (
+            /* eslint-disable-next-line @next/next/no-img-element -- Dynamic user-provided media URL */
             <img
               src={resolvedHeaderMediaPreviewUrl || undefined}
               alt="Prévia da mídia do cabeçalho"

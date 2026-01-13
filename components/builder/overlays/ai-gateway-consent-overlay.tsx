@@ -201,8 +201,7 @@ export function AiGatewayConsentOverlay({
                     <SelectItem value={team.id}>
                       <div className="flex items-center gap-2">
                         {team.avatar ? (
-                          // biome-ignore lint/correctness/useImageSize: Avatar has fixed size
-                          // biome-ignore lint/performance/noImgElement: External Vercel avatar
+                          /* eslint-disable-next-line @next/next/no-img-element -- Dynamic external URL (Vercel avatar) */
                           <img
                             alt=""
                             className="size-4 rounded-full bg-white"
