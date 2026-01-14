@@ -16,6 +16,7 @@ export function FlowEndpointPanel() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState<'url' | 'key' | null>(null);
+  const [lastMetaError, setLastMetaError] = useState<string | null>(null);
 
   const fetchStatus = async () => {
     try {
@@ -35,14 +36,17 @@ export function FlowEndpointPanel() {
 
   const handleGenerate = async () => {
     setGenerating(true);
+    setLastMetaError(null);
     try {
       const res = await fetch('/api/flows/endpoint/keys', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         if (data.metaRegistered) {
           toast.success('Chaves geradas e registradas na Meta!');
+          setLastMetaError(null);
         } else {
-          toast.warning('Chaves geradas localmente. Registro na Meta falhou - verifique permissões do token.');
+          toast.warning('Chaves geradas localmente. Registro na Meta falhou.');
+          setLastMetaError(data.metaError || 'Erro desconhecido');
         }
         await fetchStatus();
       } else {
@@ -126,11 +130,16 @@ export function FlowEndpointPanel() {
           ) : (
             // Precisa registrar manualmente - mostra chaves
             <>
-              <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3">
+              <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 space-y-2">
                 <p className="text-xs text-amber-300">
                   Chaves geradas localmente, mas não foi possível registrar na Meta automaticamente.
-                  Isso pode acontecer se o Access Token não tiver a permissão necessária.
+                  Isso pode acontecer se o Access Token não tiver a permissão <code className="bg-amber-500/20 px-1 rounded">whatsapp_business_management</code>.
                 </p>
+                {lastMetaError && (
+                  <p className="text-xs text-red-400 font-mono bg-red-500/10 p-2 rounded">
+                    Erro: {lastMetaError}
+                  </p>
+                )}
               </div>
 
               {/* Endpoint URL */}
