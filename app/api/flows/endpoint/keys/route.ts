@@ -13,6 +13,8 @@ import {
   generateKeyPair,
   isValidPrivateKey,
 } from '@/lib/whatsapp/flow-endpoint-crypto'
+import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
+import { metaSetEncryptionPublicKey, metaGetEncryptionPublicKey } from '@/lib/meta-flows-api'
 
 const PRIVATE_KEY_SETTING = 'whatsapp_flow_private_key'
 const PUBLIC_KEY_SETTING = 'whatsapp_flow_public_key'
@@ -34,17 +36,34 @@ export async function GET() {
     const hasPrivateKey = !!privateKey && isValidPrivateKey(privateKey)
     const hasPublicKey = !!publicKey
 
+    // Verifica se a chave esta registrada na Meta
+    let metaRegistered = false
+    const credentials = await getWhatsAppCredentials()
+    if (credentials?.accessToken && credentials?.businessAccountId && hasPublicKey) {
+      try {
+        const metaKey = await metaGetEncryptionPublicKey({
+          accessToken: credentials.accessToken,
+          wabaId: credentials.businessAccountId,
+        })
+        metaRegistered = !!metaKey.publicKey
+      } catch {
+        // Ignora erros ao verificar - pode ser que a API nao suporte ou permissoes
+      }
+    }
+
     return NextResponse.json({
       configured: hasPrivateKey && hasPublicKey,
       hasPrivateKey,
       hasPublicKey,
-      // Retorna a chave publica para o usuario configurar na Meta
+      metaRegistered,
       publicKey: hasPublicKey ? publicKey : null,
-      endpointUrl: process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}/api/flows/endpoint`
-        : process.env.NEXT_PUBLIC_APP_URL
-          ? `${process.env.NEXT_PUBLIC_APP_URL}/api/flows/endpoint`
-          : null,
+      endpointUrl: process.env.VERCEL_PROJECT_PRODUCTION_URL
+        ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}/api/flows/endpoint`
+        : process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}/api/flows/endpoint`
+          : process.env.NEXT_PUBLIC_APP_URL
+            ? `${process.env.NEXT_PUBLIC_APP_URL}/api/flows/endpoint`
+            : null,
     })
   } catch (error) {
     console.error('[flow-endpoint-keys] GET error:', error)
@@ -56,7 +75,7 @@ export async function GET() {
 }
 
 /**
- * POST - Gera novo par de chaves
+ * POST - Gera novo par de chaves e registra automaticamente na Meta
  *
  * Body opcional:
  * - privateKey: string (importar chave existente)
@@ -66,6 +85,15 @@ export async function POST(request: Request) {
   try {
     if (!isSupabaseConfigured()) {
       return NextResponse.json({ error: 'Supabase nao configurado' }, { status: 400 })
+    }
+
+    // Verifica se tem credenciais do WhatsApp para registrar na Meta
+    const credentials = await getWhatsAppCredentials()
+    if (!credentials?.accessToken || !credentials?.businessAccountId) {
+      return NextResponse.json(
+        { error: 'Configure suas credenciais do WhatsApp antes de gerar as chaves.' },
+        { status: 400 }
+      )
     }
 
     const body = await request.json().catch(() => ({}))
@@ -90,24 +118,47 @@ export async function POST(request: Request) {
       publicKey = keyPair.publicKey
     }
 
-    // Salva as chaves
+    // Registra a chave publica na Meta automaticamente
+    let metaRegistered = false
+    let metaError: string | null = null
+    try {
+      await metaSetEncryptionPublicKey({
+        accessToken: credentials.accessToken,
+        wabaId: credentials.businessAccountId,
+        publicKey,
+      })
+      metaRegistered = true
+    } catch (err) {
+      metaError = err instanceof Error ? err.message : 'Erro ao registrar na Meta'
+      console.error('[flow-endpoint-keys] Meta registration error:', err)
+    }
+
+    // Salva as chaves localmente (mesmo se falhar na Meta, pode tentar depois)
     await Promise.all([
       settingsDb.set(PRIVATE_KEY_SETTING, privateKey),
       settingsDb.set(PUBLIC_KEY_SETTING, publicKey),
     ])
 
-    return NextResponse.json({
-      success: true,
-      publicKey,
-      message: 'Chaves configuradas. Copie a chave publica e configure na Meta.',
-      instructions: [
-        '1. Acesse o WhatsApp Manager na Meta',
-        '2. Va em "Flows" e selecione seu flow',
-        '3. Em "Endpoint", configure a URL do seu endpoint',
-        '4. Cole a chave publica no campo apropriado',
-        '5. Salve e teste o flow',
-      ],
-    })
+    if (metaRegistered) {
+      return NextResponse.json({
+        success: true,
+        metaRegistered: true,
+        message: 'Chaves geradas e registradas na Meta automaticamente!',
+      })
+    } else {
+      return NextResponse.json({
+        success: true,
+        metaRegistered: false,
+        publicKey,
+        message: 'Chaves geradas localmente, mas falhou ao registrar na Meta.',
+        metaError,
+        instructions: [
+          'A chave foi salva localmente mas nao foi possivel registrar na Meta automaticamente.',
+          'Isso pode acontecer se o Access Token nao tiver permissao whatsapp_business_encryption.',
+          'Voce pode tentar novamente ou registrar manualmente via API.',
+        ],
+      })
+    }
   } catch (error) {
     console.error('[flow-endpoint-keys] POST error:', error)
     return NextResponse.json(

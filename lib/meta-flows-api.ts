@@ -233,6 +233,63 @@ export async function metaGetFlowPreview(params: { accessToken: string; flowId: 
   }
 }
 
+/**
+ * Registra a chave publica de criptografia para flows dinamicos (data_exchange)
+ * Endpoint: POST /{WABA_ID}/whatsapp_business_encryption
+ *
+ * A chave precisa ser registrada uma vez por WABA para permitir flows dinamicos.
+ */
+export async function metaSetEncryptionPublicKey(params: {
+  accessToken: string
+  wabaId: string
+  publicKey: string
+}): Promise<{ success: boolean }> {
+  const res = await fetch(`${GRAPH_BASE}/${encodeURIComponent(params.wabaId)}/whatsapp_business_encryption`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${params.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      business_public_key: params.publicKey,
+    }),
+  })
+
+  const data = await readJsonSafe(res)
+  if (!res.ok) throw new MetaGraphApiError(buildGraphErrorMessage(data, 'Falha ao registrar chave publica na Meta'), res.status, data)
+
+  return { success: !!data?.success }
+}
+
+/**
+ * Busca status da chave de criptografia registrada na WABA
+ */
+export async function metaGetEncryptionPublicKey(params: {
+  accessToken: string
+  wabaId: string
+}): Promise<{ publicKey: string | null }> {
+  const url = `${GRAPH_BASE}/${encodeURIComponent(params.wabaId)}/whatsapp_business_encryption`
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${params.accessToken}`,
+    },
+  })
+
+  const data = await readJsonSafe(res)
+  if (!res.ok) {
+    // Se nao tem chave configurada, retorna null em vez de erro
+    if (res.status === 400) {
+      return { publicKey: null }
+    }
+    throw new MetaGraphApiError(buildGraphErrorMessage(data, 'Falha ao buscar chave publica na Meta'), res.status, data)
+  }
+
+  return {
+    publicKey: typeof data?.business_public_key === 'string' ? data.business_public_key : null,
+  }
+}
+
 export async function metaGetFlowDetails(params: {
   accessToken: string
   flowId: string
