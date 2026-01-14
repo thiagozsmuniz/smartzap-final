@@ -10,13 +10,18 @@ import {
   useMemo,
 } from "react";
 
-export type TextShimmerProps = {
+export interface TextShimmerProps {
+  /** Text content to display with shimmer effect */
   children: string;
+  /** HTML element type to render as */
   as?: ElementType;
+  /** Additional CSS classes */
   className?: string;
+  /** Animation duration in seconds */
   duration?: number;
+  /** Spread factor for the shimmer effect */
   spread?: number;
-};
+}
 
 const ShimmerComponent = ({
   children,

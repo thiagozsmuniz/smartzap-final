@@ -4,7 +4,13 @@ import MonacoEditor, { type EditorProps, type OnMount } from "@monaco-editor/rea
 import { useTheme } from "next-themes";
 import { vercelDarkTheme } from "@/lib/builder/monaco-theme";
 
-export function CodeEditor(props: EditorProps) {
+/**
+ * Props for the CodeEditor component.
+ * Extends Monaco Editor props with automatic theme support.
+ */
+export interface CodeEditorProps extends EditorProps {}
+
+export function CodeEditor(props: CodeEditorProps) {
   const { resolvedTheme } = useTheme();
 
   const handleEditorMount: OnMount = (editor, monaco) => {

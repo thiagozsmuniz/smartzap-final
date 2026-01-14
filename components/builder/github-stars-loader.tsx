@@ -29,7 +29,12 @@ async function getGitHubStars(): Promise<number | null> {
   }
 }
 
-export async function GitHubStarsLoader({ children }: { children: ReactNode }) {
+export interface GitHubStarsLoaderProps {
+  /** Child components to render with stars context */
+  children: ReactNode;
+}
+
+export async function GitHubStarsLoader({ children }: GitHubStarsLoaderProps) {
   const stars = await getGitHubStars();
   return <GitHubStarsProvider stars={stars}>{children}</GitHubStarsProvider>;
 }

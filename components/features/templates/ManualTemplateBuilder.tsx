@@ -4,6 +4,7 @@ import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { flowsService } from '@/services/flowsService'
+import { templateService } from '@/services/templateService'
 
 // Extracted components
 import { TemplatePreview } from './builder/TemplatePreview'
@@ -199,25 +200,7 @@ export function ManualTemplateBuilder({
     setUploadHeaderMediaError(null)
     setIsUploadingHeaderMedia(true)
     try {
-      const fd = new FormData()
-      fd.set('file', file)
-      fd.set('format', format)
-
-      const res = await fetch('/api/meta/uploads/template-header', {
-        method: 'POST',
-        body: fd,
-      })
-
-      const data = await res.json().catch(() => null)
-      if (!res.ok) {
-        const msg = String(data?.error || data?.message || 'Falha ao enviar midia')
-        throw new Error(msg)
-      }
-
-      const handle = String(data?.handle || '').trim()
-      if (!handle) {
-        throw new Error('Upload concluido, mas nao recebemos o header_handle.')
-      }
+      const { handle } = await templateService.uploadHeaderMedia(file, format)
 
       updateHeader({
         ...header,

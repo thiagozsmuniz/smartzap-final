@@ -499,5 +499,83 @@ export const campaignService = {
     }
 
     return campaignService.getById(id);
-  }
+  },
+
+  // Get traces for a campaign (debug/executions)
+  getTraces: async (id: string, limit?: number): Promise<{
+    traces: Array<{
+      traceId: string
+      source: 'run_metrics' | 'campaign_contacts'
+      createdAt?: string | null
+      lastSeenAt?: string | null
+      recipients?: number | null
+      sentTotal?: number | null
+      failedTotal?: number | null
+      skippedTotal?: number | null
+    }>
+  }> => {
+    const response = await fetch(`/api/campaigns/${encodeURIComponent(id)}/trace?limit=${limit || 50}`, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' },
+    })
+
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(payload?.error || 'Falha ao carregar execuções')
+    }
+
+    return {
+      traces: Array.isArray(payload?.traces) ? payload.traces : [],
+    }
+  },
+
+  // Get trace events (timeline) for a specific trace
+  getTraceEvents: async (
+    id: string,
+    params: {
+      traceId: string
+      limit?: number
+      offset?: number
+      phase?: string
+      ok?: 'all' | 'ok' | 'fail'
+    }
+  ): Promise<{
+    events: Array<{
+      id: string
+      trace_id: string
+      ts: string
+      step: string | null
+      phase: string
+      ok: boolean | null
+      ms: number | null
+      batch_index: number | null
+      contact_id: string | null
+      phone_masked: string | null
+      extra: Record<string, unknown> | null
+    }>
+    pagination: { total: number }
+  }> => {
+    const searchParams = new URLSearchParams()
+    searchParams.set('traceId', params.traceId)
+    searchParams.set('limit', String(params.limit || 200))
+    searchParams.set('offset', String(params.offset || 0))
+    if (params.phase?.trim()) searchParams.set('phase', params.phase.trim())
+    if (params.ok === 'ok') searchParams.set('ok', '1')
+    if (params.ok === 'fail') searchParams.set('ok', '0')
+
+    const response = await fetch(`/api/campaigns/${encodeURIComponent(id)}/trace-events?${searchParams}`, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' },
+    })
+
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(payload?.error || 'Falha ao carregar timeline')
+    }
+
+    return {
+      events: Array.isArray(payload?.events) ? payload.events : [],
+      pagination: { total: typeof payload?.pagination?.total === 'number' ? payload.pagination.total : 0 },
+    }
+  },
 };

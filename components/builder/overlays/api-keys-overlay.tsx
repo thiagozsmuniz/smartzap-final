@@ -10,15 +10,7 @@ import { Spinner } from "@/components/builder/ui/spinner";
 import { ConfirmOverlay } from "./confirm-overlay";
 import { Overlay } from "./overlay";
 import { useOverlay } from "./overlay-provider";
-
-type ApiKey = {
-  id: string;
-  name: string | null;
-  keyPrefix: string;
-  createdAt: string;
-  lastUsedAt: string | null;
-  key?: string;
-};
+import { builderApiService, type ApiKey } from "@/services/builderApiService";
 
 type ApiKeysOverlayProps = {
   overlayId: string;
@@ -42,18 +34,7 @@ function CreateApiKeyOverlay({
   const handleCreate = async () => {
     setCreating(true);
     try {
-      const response = await fetch("/api/builder/api-keys", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: keyName || null }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Falha ao criar chave de API");
-      }
-
-      const newKey = await response.json();
+      const newKey = await builderApiService.createApiKey(keyName || null);
       onCreated(newKey);
       toast.success("Chave de API criada");
       pop();
@@ -102,11 +83,7 @@ export function ApiKeysOverlay({ overlayId }: ApiKeysOverlayProps) {
   const loadApiKeys = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/builder/api-keys");
-      if (!response.ok) {
-        throw new Error("Falha ao carregar chaves de API");
-      }
-      const keys = await response.json();
+      const keys = await builderApiService.listApiKeys();
       setApiKeys(keys);
     } catch (error) {
       console.error("Failed to load API keys:", error);
@@ -128,14 +105,7 @@ export function ApiKeysOverlay({ overlayId }: ApiKeysOverlayProps) {
   const handleDelete = async (keyId: string) => {
     setDeleting(keyId);
     try {
-      const response = await fetch(`/api/builder/api-keys/${keyId}`, {
-        method: "DELETE",
-      });
-
-      if (!response.ok) {
-        throw new Error("Falha ao excluir chave de API");
-      }
-
+      await builderApiService.deleteApiKey(keyId);
       setApiKeys((prev) => prev.filter((k) => k.id !== keyId));
       toast.success("Chave de API excluida");
     } catch (error) {

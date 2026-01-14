@@ -173,4 +173,58 @@ export const flowsService = {
     if (!parsed.success) throw new Error('Resposta inválida ao publicar MiniApp na Meta')
     return parsed.data as any
   },
+
+  async send(payload: {
+    to: string
+    flowId: string
+    flowToken: string
+    body?: string
+    ctaText?: string
+    footer?: string
+    action?: 'navigate' | 'data_exchange'
+    actionPayload?: Record<string, unknown>
+    flowMessageVersion?: string
+  }): Promise<unknown> {
+    const res = await fetch('/api/flows/send', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    const data = await res.json().catch(() => null)
+    if (!res.ok) {
+      const msg = data?.error || 'Falha ao enviar MiniApp'
+      throw new Error(msg)
+    }
+    return data
+  },
+
+  async generateForm(params: {
+    prompt: string
+    titleHint?: string
+    maxQuestions?: number
+  }): Promise<unknown> {
+    const res = await fetch('/api/ai/generate-flow-form', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: params.prompt,
+        titleHint: params.titleHint,
+        maxQuestions: params.maxQuestions || 10,
+      }),
+    })
+
+    const data = await res.json().catch(() => null)
+    if (!res.ok) {
+      const msg = (data?.error && String(data.error)) || 'Falha ao gerar formulário com IA'
+      const details = data?.details ? `: ${String(data.details)}` : ''
+      throw new Error(`${msg}${details}`)
+    }
+
+    const generatedForm = data?.form || null
+    if (!generatedForm) throw new Error('Resposta inválida da IA (form ausente)')
+
+    return generatedForm
+  },
 }

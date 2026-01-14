@@ -15,6 +15,7 @@ import type {
   MissingRequiredFieldInfo,
   ExecuteTestWorkflowParams,
 } from "./types";
+import { builderApiService } from "@/services/builderApiService";
 
 // Built-in actions that require integrations but aren't in the plugin registry
 const BUILTIN_ACTION_INTEGRATIONS: Record<string, IntegrationType> = {
@@ -302,19 +303,7 @@ export async function executeTestWorkflow({
 
   try {
     // Start the execution via API
-    const response = await fetch(`/api/builder/workflow/${workflowId}/execute`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ input: input || {} }),
-    });
-
-    if (!response.ok) {
-      throw new Error("Falha ao executar o fluxo");
-    }
-
-    const result = await response.json();
+    const result = await builderApiService.executeWorkflow(workflowId, input);
 
     // Select the new execution
     setSelectedExecutionId(result.executionId);

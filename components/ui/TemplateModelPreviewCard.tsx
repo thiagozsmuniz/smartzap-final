@@ -4,7 +4,9 @@ import React from 'react'
 import { Play, ExternalLink, CornerDownLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+/** Button type for template preview */
 export type ModelPreviewButton = {
+  /** Type of WhatsApp template button */
   type:
     | 'QUICK_REPLY'
     | 'URL'
@@ -21,27 +23,30 @@ export type ModelPreviewButton = {
     | 'REMINDER'
     | 'SEND_LOCATION'
     | 'SPM'
+  /** Button display text */
   text: string
 }
 
-export function TemplateModelPreviewCard(props: {
-  /** Título do card (exatamente como no builder de templates) */
+export interface TemplateModelPreviewCardProps {
+  /** Card title (displayed at the top of the card) */
   title?: string
-  /** Nome no header da conversa (ex: Business) */
+  /** Business name shown in the conversation header */
   businessName?: string
-  /** Subtítulo no header da conversa (ex: template) */
+  /** Subtitle shown in the conversation header */
   contextLabel?: string
-  /** Texto em destaque acima do corpo (equivalente ao Header TEXT do template) */
+  /** Header text displayed above the body (template Header TEXT) */
   headerLabel?: string | null
-  /** Conteúdo principal (corpo) */
+  /** Main content (template body) */
   bodyText?: string
-  /** Rodapé (footer do template) */
+  /** Footer text (template footer) */
   footerText?: string
-  /** Botões (mesmo visual do preview do template builder) */
+  /** Action buttons (same visual as template builder preview) */
   buttons?: ModelPreviewButton[]
-  /** Placeholder quando não há body */
+  /** Placeholder text when body is empty */
   emptyBodyText?: string
-}) {
+}
+
+export function TemplateModelPreviewCard(props: TemplateModelPreviewCardProps) {
   const title = props.title ?? 'Prévia do modelo'
   const businessName = props.businessName ?? 'Business'
   const contextLabel = props.contextLabel ?? 'template'

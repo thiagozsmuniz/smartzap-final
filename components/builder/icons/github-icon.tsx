@@ -1,4 +1,9 @@
-export function GitHubIcon({ className }: { className?: string }) {
+export interface GitHubIconProps {
+  /** Additional CSS classes for the SVG element */
+  className?: string;
+}
+
+export function GitHubIcon({ className }: GitHubIconProps) {
   return (
     <svg
       aria-label="GitHub"

@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import Link from 'next/link';
 import { RefreshCw, ExternalLink, Edit2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { settingsService } from '@/services/settingsService';
 
 export interface MetaAppPanelProps {
   metaApp?: {
@@ -45,13 +46,10 @@ export function MetaAppPanel({
       }
 
       setIsSaving(true);
-      const res = await fetch('/api/settings/meta-app', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appId: appIdDraft.trim(), appSecret: appSecretDraft.trim() }),
+      await settingsService.saveMetaAppConfig({
+        appId: appIdDraft.trim(),
+        appSecret: appSecretDraft.trim(),
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((json as { error?: string })?.error || 'Falha ao salvar');
 
       toast.success('Meta App salvo com sucesso');
       setIsEditing(false);
@@ -67,9 +65,7 @@ export function MetaAppPanel({
   const handleRemove = async () => {
     try {
       setIsSaving(true);
-      const res = await fetch('/api/settings/meta-app', { method: 'DELETE' });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((json as { error?: string })?.error || 'Falha ao remover');
+      await settingsService.removeMetaAppConfig();
       toast.success('Meta App removido (DB)');
       refreshMetaApp?.();
     } catch (e) {

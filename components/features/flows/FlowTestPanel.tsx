@@ -9,34 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
-import type { FlowRow } from '@/services/flowsService'
+import { flowsService, type FlowRow } from '@/services/flowsService'
 import { settingsService } from '@/services'
-
-type SendFlowPayload = {
-  to: string
-  flowId: string
-  flowToken: string
-  body?: string
-  ctaText?: string
-  footer?: string
-  flowMessageVersion?: string
-}
-
-async function sendFlow(payload: SendFlowPayload) {
-  const res = await fetch('/api/flows/send', {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-
-  const data = await res.json().catch(() => null)
-  if (!res.ok) {
-    const msg = data?.error || 'Falha ao enviar MiniApp'
-    throw new Error(msg)
-  }
-  return data
-}
 
 export function FlowTestPanel({
   flows,
@@ -224,7 +198,7 @@ export function FlowTestPanel({
           onClick={async () => {
             try {
               setIsSending(true)
-              await sendFlow({
+              await flowsService.send({
                 to,
                 flowId,
                 flowToken,
@@ -246,7 +220,7 @@ export function FlowTestPanel({
           <Send className="h-4 w-4" />
           {isSending ? 'Enviando…' : 'Enviar teste'}
         </Button>
-        <div className="text-[11px] text-gray-500">Os testes aparecem em “Submissões recentes”.</div>
+        <div className="text-[11px] text-gray-500">Os testes aparecem em "Submissões recentes".</div>
       </div>
     </div>
   )

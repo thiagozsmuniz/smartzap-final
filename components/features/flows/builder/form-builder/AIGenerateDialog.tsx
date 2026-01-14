@@ -16,6 +16,7 @@ import {
 
 import { FlowFormSpecV1 } from '@/lib/flow-form'
 import { AIGenerateDialogProps } from './types'
+import { flowsService } from '@/services/flowsService'
 
 export function AIGenerateDialog({
   open,
@@ -36,24 +37,12 @@ export function AIGenerateDialog({
 
     setLoading(true)
     try {
-      const res = await fetch('/api/ai/generate-flow-form', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          titleHint: flowName,
-          maxQuestions: 10,
-        }),
-      })
+      const generatedForm = (await flowsService.generateForm({
+        prompt: prompt.trim(),
+        titleHint: flowName,
+        maxQuestions: 10,
+      })) as FlowFormSpecV1 | null
 
-      const data = await res.json().catch(() => null)
-      if (!res.ok) {
-        const msg = (data?.error && String(data.error)) || 'Falha ao gerar formulário com IA'
-        const details = data?.details ? `: ${String(data.details)}` : ''
-        throw new Error(`${msg}${details}`)
-      }
-
-      const generatedForm = (data?.form || null) as FlowFormSpecV1 | null
       if (!generatedForm) throw new Error('Resposta inválida da IA (form ausente)')
 
       onGenerated(generatedForm)

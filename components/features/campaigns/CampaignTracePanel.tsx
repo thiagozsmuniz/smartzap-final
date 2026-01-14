@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronDown, Copy, Loader2, RefreshCw, Search } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { campaignService } from '@/services/campaignService'
 
 type TraceListItem = {
   traceId: string
@@ -76,20 +77,14 @@ export function CampaignTracePanel({
     setIsLoadingTraces(true)
     setError(null)
     try {
-      const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/trace?limit=50`, {
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache' },
-      })
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(payload?.error || 'Falha ao carregar execuções')
-
-      const list = Array.isArray(payload?.traces) ? (payload.traces as TraceListItem[]) : []
+      const { traces: fetchedTraces } = await campaignService.getTraces(campaignId, 50)
+      const list = fetchedTraces as TraceListItem[]
       setTraces(list)
 
       // Auto-select SEMPRE:
-      // - Preferimos o traceId vindo das métricas (quando presente).
-      // - Caso contrário, usamos a execução mais recente retornada pelo endpoint.
-      // - Mantemos a seleção atual apenas se ela ainda existir no conjunto.
+      // - Preferimos o traceId vindo das metricas (quando presente).
+      // - Caso contrario, usamos a execucao mais recente retornada pelo endpoint.
+      // - Mantemos a selecao atual apenas se ela ainda existir no conjunto.
       const current = selectedTraceId
       const currentExists = current && list.some((t) => t.traceId === current)
       const preferred = String(initialTraceId || '').trim()
@@ -117,23 +112,16 @@ export function CampaignTracePanel({
     setIsLoadingEvents(true)
     setError(null)
     try {
-      const params = new URLSearchParams()
-      params.set('traceId', selectedTraceId)
-      params.set('limit', '200')
-      params.set('offset', String(nextOffset))
-      if (phaseFilter.trim()) params.set('phase', phaseFilter.trim())
-      if (okFilter === 'ok') params.set('ok', '1')
-      if (okFilter === 'fail') params.set('ok', '0')
-
-      const res = await fetch(`/api/campaigns/${encodeURIComponent(campaignId)}/trace-events?${params}`, {
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache' },
+      const { events: fetchedEvents, pagination } = await campaignService.getTraceEvents(campaignId, {
+        traceId: selectedTraceId,
+        limit: 200,
+        offset: nextOffset,
+        phase: phaseFilter.trim() || undefined,
+        ok: okFilter,
       })
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(payload?.error || 'Falha ao carregar timeline')
 
-      const rows = Array.isArray(payload?.events) ? (payload.events as TraceEventRow[]) : []
-      const total = typeof payload?.pagination?.total === 'number' ? (payload.pagination.total as number) : null
+      const rows = fetchedEvents as TraceEventRow[]
+      const total = pagination.total
 
       setEventsTotal(total)
       if (reset) {

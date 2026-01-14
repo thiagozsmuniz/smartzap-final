@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { Wand2 } from 'lucide-react'
-import type { Simulate10033Response } from '../types'
+import { metaDiagnosticsService, type Simulate10033Response } from '@/services/metaDiagnosticsService'
 import { StatusBadge } from '../StatusBadge'
 import { Pill } from '../Pill'
 import { formatJsonMaybe } from '../utils'
@@ -14,17 +14,8 @@ export function Simulate10033Card() {
   const run = React.useCallback(async () => {
     setIsRunning(true)
     try {
-      const res = await fetch('/api/meta/diagnostics/simulate-10033', { method: 'POST' })
-      const json = (await res.json().catch(() => null)) as unknown
-      if (!res.ok) {
-        setResult({
-          ok: false,
-          error: (json as Record<string, unknown>)?.error as string || 'Falha ao simular',
-          details: (json as Record<string, unknown>)?.details || null,
-        })
-        return
-      }
-      setResult(json as Simulate10033Response)
+      const response = await metaDiagnosticsService.simulate10033()
+      setResult(response)
     } catch (e) {
       setResult({
         ok: false,

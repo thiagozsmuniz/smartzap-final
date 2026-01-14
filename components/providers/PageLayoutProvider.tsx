@@ -41,7 +41,12 @@ type PageLayoutContextValue = {
 
 const PageLayoutContext = createContext<PageLayoutContextValue | null>(null)
 
-export function PageLayoutProvider({ children }: { children: React.ReactNode }) {
+export interface PageLayoutProviderProps {
+  /** Child components that will have access to page layout context */
+  children: React.ReactNode
+}
+
+export function PageLayoutProvider({ children }: PageLayoutProviderProps) {
   const [stack, setStack] = useState<LayoutStackItem[]>([])
   const idSeq = useRef(0)
 
@@ -82,13 +87,17 @@ export function usePageLayoutController() {
   return { push: ctx.push, pop: ctx.pop }
 }
 
+export interface PageLayoutScopeProps {
+  /** Partial layout configuration to apply within this scope */
+  value: Partial<PageLayoutConfig>
+  /** Content to render with the scoped layout */
+  children: React.ReactNode
+}
+
 export function PageLayoutScope({
   value,
   children,
-}: {
-  value: Partial<PageLayoutConfig>
-  children: React.ReactNode
-}) {
+}: PageLayoutScopeProps) {
   const { push, pop } = usePageLayoutController()
   const scopeIdRef = useRef<string | null>(null)
 

@@ -12,14 +12,19 @@ function extractDraftBody(draft: ManualDraftTemplate): string {
   if (typeof draft.content === 'string' && draft.content.trim()) return draft.content
   const spec = draft.spec
   if (spec && typeof spec === 'object') {
-    const body = (spec as any).body
+    const body = (spec as Record<string, unknown>).body as { text?: string } | undefined
     if (body && typeof body.text === 'string') return body.text
-    if (typeof (spec as any).content === 'string') return (spec as any).content
+    if (typeof (spec as Record<string, unknown>).content === 'string') return (spec as Record<string, unknown>).content as string
   }
   return ''
 }
 
-function DraftStatusBadge({ ready }: { ready: boolean }) {
+interface DraftStatusBadgeProps {
+  /** Whether the draft is ready to be submitted */
+  ready: boolean
+}
+
+function DraftStatusBadge({ ready }: DraftStatusBadgeProps) {
   return (
     <span
       className={cn(
@@ -32,6 +37,39 @@ function DraftStatusBadge({ ready }: { ready: boolean }) {
       {ready ? 'Pronto para enviar' : 'Em edição'}
     </span>
   )
+}
+
+export interface ManualDraftsViewProps {
+  /** List of draft templates */
+  drafts: ManualDraftTemplate[]
+  /** Whether the initial data is loading */
+  isLoading: boolean
+  /** Whether a refresh is in progress */
+  isRefreshing: boolean
+  /** Current search query */
+  search: string
+  /** Callback to update search query */
+  setSearch: (v: string) => void
+  /** Callback to refresh the drafts list */
+  onRefresh: () => void
+  /** Callback to create a new draft */
+  onCreate: (input: { name: string; category: string; language: string; parameterFormat: 'positional' | 'named' }) => Promise<ManualDraftTemplate | void>
+  /** Whether a draft is being created */
+  isCreating: boolean
+  /** Callback to delete a draft by id */
+  onDelete: (id: string) => void
+  /** Whether a draft is being deleted */
+  isDeleting: boolean
+  /** Callback to update a draft spec */
+  onUpdate: (id: string, patch: { spec: unknown }) => void
+  /** Whether a draft is being updated */
+  isUpdating: boolean
+  /** Callback to submit a draft for approval */
+  onSubmit: (id: string) => void
+  /** Whether a draft is being submitted */
+  isSubmitting: boolean
+  /** Function to normalize template names */
+  normalizeName: (input: string) => string
 }
 
 export function ManualDraftsView({
@@ -49,23 +87,7 @@ export function ManualDraftsView({
   onSubmit,
   isSubmitting,
   normalizeName,
-}: {
-  drafts: ManualDraftTemplate[]
-  isLoading: boolean
-  isRefreshing: boolean
-  search: string
-  setSearch: (v: string) => void
-  onRefresh: () => void
-  onCreate: (input: { name: string; category: string; language: string; parameterFormat: 'positional' | 'named' }) => Promise<ManualDraftTemplate | void>
-  isCreating: boolean
-  onDelete: (id: string) => void
-  isDeleting: boolean
-  onUpdate: (id: string, patch: { spec: unknown }) => void
-  isUpdating: boolean
-  onSubmit: (id: string) => void
-  isSubmitting: boolean
-  normalizeName: (input: string) => string
-}) {
+}: ManualDraftsViewProps) {
   const router = useRouter()
   const [isQuickCreating, setIsQuickCreating] = React.useState(false)
 

@@ -72,6 +72,21 @@ export type MetaDiagnosticsResponse = {
   report?: { text?: string; supportPacketText?: string } | null
 }
 
+export type Simulate10033Response =
+  | { ok: false; error: string; details?: unknown }
+  | {
+      ok: true
+      attempt?: { status?: number }
+      result?: {
+        normalizedError?: {
+          code?: number
+          subcode?: number
+          message?: string
+          fbtraceId?: string
+        }
+      }
+    }
+
 export const metaDiagnosticsService = {
   get: async (): Promise<MetaDiagnosticsResponse> => {
     const res = await fetch('/api/meta/diagnostics', {
@@ -119,5 +134,22 @@ export const metaDiagnosticsService = {
     }
 
     return json
+  },
+
+  simulate10033: async (): Promise<Simulate10033Response> => {
+    const res = await fetch('/api/meta/diagnostics/simulate-10033', {
+      method: 'POST',
+    })
+
+    const json = await res.json().catch(() => null)
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: (json as any)?.error || 'Falha ao simular',
+        details: (json as any)?.details || null,
+      }
+    }
+
+    return json as Simulate10033Response
   },
 }

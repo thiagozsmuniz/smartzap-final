@@ -240,10 +240,23 @@ export function SubmissionDetailView({
     );
 }
 
-function StatCard({ label, count, total, color, icon: Icon }: any) {
+interface StatCardProps {
+    /** Display label for the stat */
+    label: string
+    /** Current count value */
+    count: number
+    /** Total value for percentage calculation */
+    total: number
+    /** Color theme for the card */
+    color: 'emerald' | 'yellow' | 'red' | 'zinc'
+    /** Icon component to display */
+    icon: React.ComponentType<{ className?: string }>
+}
+
+function StatCard({ label, count, total, color, icon: Icon }: StatCardProps) {
     const percent = Math.round((count / total) * 100) || 0;
 
-    const colors: Record<string, string> = {
+    const colors: Record<StatCardProps['color'], string> = {
         emerald: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/20',
         yellow: 'text-amber-300 bg-amber-500/10 border-amber-500/20',
         red: 'text-amber-200 bg-amber-500/10 border-amber-500/20',
@@ -253,7 +266,7 @@ function StatCard({ label, count, total, color, icon: Icon }: any) {
     return (
         <div className={`p-4 rounded-2xl border shadow-[0_12px_30px_rgba(0,0,0,0.35)] ${colors[color]}`}>
             <div className="flex justify-between items-start mb-2">
-                <Icon className={`w-5 h-5`} />
+                <Icon className="w-5 h-5" />
                 <span className="text-2xl font-bold">{count}</span>
             </div>
             <div className="flex justify-between items-end">

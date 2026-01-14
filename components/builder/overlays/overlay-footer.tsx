@@ -5,10 +5,15 @@ import { Button } from "@/components/builder/ui/button";
 import { cn } from "@/lib/builder/utils";
 import type { OverlayAction, OverlayFooterProps } from "./types";
 
+interface ActionButtonProps {
+  /** Action configuration for the button */
+  action: OverlayAction;
+}
+
 /**
  * Render a single action button
  */
-function ActionButton({ action }: { action: OverlayAction }) {
+function ActionButton({ action }: ActionButtonProps) {
   return (
     <Button
       disabled={action.disabled || action.loading}

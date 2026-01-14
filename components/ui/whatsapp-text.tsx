@@ -185,13 +185,17 @@ const renderWhatsAppInline = (text: string, keyPrefix: string): React.ReactNode[
   return nodes
 }
 
+export interface WhatsAppInlineTextProps {
+  /** WhatsApp formatted text to render */
+  text: string
+  /** Additional CSS classes */
+  className?: string
+}
+
 export const WhatsAppInlineText = ({
   text,
   className,
-}: {
-  text: string
-  className?: string
-}) => {
+}: WhatsAppInlineTextProps) => {
   const parts = text.split(/\r?\n/)
   return (
     <span className={className}>
@@ -205,7 +209,12 @@ export const WhatsAppInlineText = ({
   )
 }
 
-export const WhatsAppFormattedBody = ({ text }: { text: string }) => {
+export interface WhatsAppFormattedBodyProps {
+  /** WhatsApp formatted text to render as structured blocks */
+  text: string
+}
+
+export const WhatsAppFormattedBody = ({ text }: WhatsAppFormattedBodyProps) => {
   const blocks = parseWhatsAppTextBlocks(text)
 
   return (

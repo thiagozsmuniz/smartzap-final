@@ -1,6 +1,6 @@
 /**
  * Service Exports
- * 
+ *
  */
 
 // ============================================================================
@@ -14,3 +14,15 @@ export { leadFormService } from './leadFormService';
 // SETTINGS SERVICE (usa credenciais salvas no Supabase/env)
 // ============================================================================
 export { settingsService } from './settingsService';
+// ============================================================================
+// FLOWS SERVICE
+// ============================================================================
+export { flowsService } from './flowsService';
+// ============================================================================
+// META DIAGNOSTICS SERVICE
+// ============================================================================
+export { metaDiagnosticsService } from './metaDiagnosticsService';
+// ============================================================================
+// BUILDER API SERVICE (workflow execution, api keys)
+// ============================================================================
+export { builderApiService } from './builderApiService';

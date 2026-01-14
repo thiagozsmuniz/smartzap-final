@@ -1,4 +1,9 @@
-export function WorkflowIcon({ className }: { className?: string }) {
+export interface WorkflowIconProps {
+  /** Additional CSS classes for the SVG element */
+  className?: string
+}
+
+export function WorkflowIcon({ className }: WorkflowIconProps) {
   return (
     <svg
       className={className}

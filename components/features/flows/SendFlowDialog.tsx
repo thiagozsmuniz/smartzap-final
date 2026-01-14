@@ -10,36 +10,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import type { FlowRow } from '@/services/flowsService'
+import { flowsService, type FlowRow } from '@/services/flowsService'
 import { settingsService } from '@/services'
-
-type SendFlowPayload = {
-  to: string
-  flowId: string
-  flowToken: string
-  body?: string
-  ctaText?: string
-  footer?: string
-  action?: 'navigate' | 'data_exchange'
-  actionPayload?: Record<string, unknown>
-  flowMessageVersion?: string
-}
-
-async function sendFlow(payload: SendFlowPayload) {
-  const res = await fetch('/api/flows/send', {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-
-  const data = await res.json().catch(() => null)
-  if (!res.ok) {
-    const msg = data?.error || 'Falha ao enviar MiniApp'
-    throw new Error(msg)
-  }
-  return data
-}
 
 export function SendFlowDialog(props: {
   flows?: FlowRow[]
@@ -237,7 +209,7 @@ export function SendFlowDialog(props: {
             onClick={async () => {
               try {
                 setIsSending(true)
-                await sendFlow({
+                await flowsService.send({
                   to,
                   flowId,
                   flowToken,

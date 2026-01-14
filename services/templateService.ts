@@ -303,5 +303,30 @@ export const templateService = {
     }
 
     return data;
-  }
+  },
+
+  // Upload de mídia para header de template (retorna header_handle)
+  uploadHeaderMedia: async (file: File, format: string): Promise<{ handle: string }> => {
+    const fd = new FormData();
+    fd.set('file', file);
+    fd.set('format', format);
+
+    const response = await fetch('/api/meta/uploads/template-header', {
+      method: 'POST',
+      body: fd,
+    });
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      const msg = String(data?.error || data?.message || 'Falha ao enviar mídia');
+      throw new Error(msg);
+    }
+
+    const handle = String(data?.handle || '').trim();
+    if (!handle) {
+      throw new Error('Upload concluído, mas não recebemos o header_handle.');
+    }
+
+    return { handle };
+  },
 };

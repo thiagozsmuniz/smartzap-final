@@ -6,10 +6,14 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
-type TimePickerProps = {
+export interface DateTimePickerProps {
+  /** Current time value in HH:mm format */
   value?: string
+  /** Callback when time changes */
   onChange?: (value: string) => void
+  /** Additional CSS classes for the popover content */
   className?: string
+  /** Whether the picker is disabled */
   disabled?: boolean
 }
 
@@ -21,7 +25,7 @@ export default function DateTimePicker({
   onChange,
   className,
   disabled,
-}: TimePickerProps) {
+}: DateTimePickerProps) {
   const [hour, setHour] = React.useState("12")
   const [minute, setMinute] = React.useState("00")
   const hourRef = React.useRef(hour)

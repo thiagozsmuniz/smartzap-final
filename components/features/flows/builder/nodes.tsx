@@ -6,7 +6,18 @@ type StartNodeType = Node<{ label?: string }, 'start'>
 type MessageNodeType = Node<{ label?: string; text?: string }, 'message'>
 type EndNodeType = Node<{ label?: string }, 'end'>
 
-function NodeShell(props: { title: string; subtitle?: string; tone?: 'default' | 'success' | 'danger'; children?: React.ReactNode }) {
+interface NodeShellProps {
+  /** Title displayed in the node header */
+  title: string
+  /** Optional subtitle displayed below the title */
+  subtitle?: string
+  /** Visual tone/color scheme for the node */
+  tone?: 'default' | 'success' | 'danger'
+  /** Content to render inside the node body */
+  children?: React.ReactNode
+}
+
+function NodeShell(props: NodeShellProps) {
   const tone = props.tone || 'default'
   const ring =
     tone === 'success'

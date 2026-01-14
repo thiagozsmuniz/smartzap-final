@@ -14,6 +14,7 @@ import {
 import type { CustomFieldDefinition, Template } from "@/types";
 import { templateService } from "@/services/templateService";
 import { customFieldService } from "@/services/customFieldService";
+import { settingsService } from "@/services/settingsService";
 import { getTestContactLabel } from "@/lib/test-contact-display";
 import {
   paramsToMap,
@@ -58,15 +59,7 @@ export function SendTemplatePanel({
     custom_fields?: Record<string, unknown>;
   } | null>({
     queryKey: ["testContact"],
-    queryFn: async () => {
-      const response = await fetch("/api/settings/test-contact", {
-        cache: "no-store",
-      });
-      if (!response.ok) return null;
-      const data = await response.json().catch(() => null);
-      if (!data || (data as any)?.error) return null;
-      return data;
-    },
+    queryFn: () => settingsService.getTestContact(),
   });
 
   const templateOptions = useMemo(() => {

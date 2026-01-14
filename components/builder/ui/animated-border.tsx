@@ -2,7 +2,8 @@
 
 import { cn } from "@/lib/builder/utils";
 
-interface AnimatedBorderProps {
+export interface AnimatedBorderProps {
+  /** Additional CSS classes for the border container */
   className?: string;
 }
 
