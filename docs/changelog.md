@@ -41,6 +41,9 @@
 - **🔧 Build corrigido no publish**
   - Ajuste de escopo em `app/api/flows/[id]/meta/publish/route.ts` para `wantsDebug`
 
+- **🏷️ Nome único ao publicar Flow**
+  - `app/api/flows/[id]/meta/publish/route.ts` adiciona sufixo com ID para evitar colisão na Meta
+
 ## 25/12/2025 - Debug (Run/Trace para campanhas)
 
 - **🔎 Timeline estruturada por `trace_id` (sem caçar logs)**

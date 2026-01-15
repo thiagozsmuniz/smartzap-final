@@ -221,10 +221,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       // #endregion agent log
 
       // Criar na Meta (com publish opcional em um único request)
+      const baseName = String(row?.name || 'Flow').trim() || 'Flow'
+      const suffix = ` #${String(id).slice(0, 6)}`
+      const maxNameLength = 60
+      const maxBaseLength = Math.max(1, maxNameLength - suffix.length)
+      const uniqueName = `${baseName.slice(0, maxBaseLength)}${suffix}`
       const created = await metaCreateFlow({
         accessToken: credentials.accessToken,
         wabaId: credentials.businessAccountId,
-        name: String(row?.name || 'Flow'),
+        name: uniqueName,
         categories: input.categories.length > 0 ? input.categories : ['OTHER'],
         flowJson,
         publish: !!input.publish,
